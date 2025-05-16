@@ -7,8 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-// import { Textarea } from "@/components/ui/textarea"; // Removed as description is removed
-import { PlusCircle, Trash2, Edit3, Camera, RefreshCw, ListChecks, User, PackageSearch } from "lucide-react";
+import { PlusCircle, Trash2, Edit3, Camera, RefreshCw, ListChecks, User, PackageSearch, Building } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -186,7 +185,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         soldierIdToSave = values.linkedSoldierId;
       }
 
-      const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'imageUrl' | 'createdAt'> & { imageUrl?: string } = {
+      const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'imageUrl' | 'createdAt'> & { imageUrl?: string } = {
         itemTypeId: values.itemTypeId,
         itemId: values.itemId,
         linkedSoldierId: soldierIdToSave,
@@ -194,25 +193,46 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       
       if (values.photoDataUri && !editingItem) { 
          // For now, assuming imageUrl is either pre-existing or not set by scan for simplicity.
-         // If an image was scanned, its URL isn't automatically handled for saving yet.
       } else if (editingItem?.imageUrl) {
         dataToSave.imageUrl = editingItem.imageUrl;
       }
 
-
-      let updatedOrNewItem;
+      let updatedOrNewItemClient: ArmoryItem;
       const itemTypeName = armoryItemTypes.find(t => t.id === dataToSave.itemTypeId)?.name || "לא ידוע";
-      const linkedSoldierName = dataToSave.linkedSoldierId ? soldiers.find(s => s.id === dataToSave.linkedSoldierId)?.name : undefined;
+      let linkedSoldierName: string | undefined = undefined;
+      let linkedSoldierDivisionName: string | undefined = undefined;
+
+      if (dataToSave.linkedSoldierId) {
+          const soldier = soldiers.find(s => s.id === dataToSave.linkedSoldierId);
+          if (soldier) {
+              linkedSoldierName = soldier.name;
+              linkedSoldierDivisionName = soldier.divisionName; // Assuming soldier.divisionName is populated
+          }
+      }
+
 
       if (editingItem) {
         await updateArmoryItem(editingItem.id, dataToSave);
-        updatedOrNewItem = { ...editingItem, ...dataToSave, itemTypeName, linkedSoldierName, imageUrl: dataToSave.imageUrl };
-        setArmoryItems(prev => prev.map(item => item.id === editingItem.id ? updatedOrNewItem : item));
+        updatedOrNewItemClient = { 
+            ...editingItem, 
+            ...dataToSave, 
+            itemTypeName, 
+            linkedSoldierName, 
+            linkedSoldierDivisionName, 
+            imageUrl: dataToSave.imageUrl 
+        };
+        setArmoryItems(prev => prev.map(item => item.id === editingItem.id ? updatedOrNewItemClient : item));
         toast({ title: "הצלחה", description: "פרטי הפריט עודכנו." });
       } else {
         const newItemServer = await addArmoryItem(dataToSave);
-        updatedOrNewItem = { ...newItemServer, itemTypeName, linkedSoldierName, imageUrl: dataToSave.imageUrl }; 
-        setArmoryItems(prev => [...prev, updatedOrNewItem]);
+        updatedOrNewItemClient = { 
+            ...newItemServer, 
+            itemTypeName, 
+            linkedSoldierName, 
+            linkedSoldierDivisionName,
+            imageUrl: dataToSave.imageUrl 
+        }; 
+        setArmoryItems(prev => [...prev, updatedOrNewItemClient]);
         toast({ title: "הצלחה", description: "פריט נוסף בהצלחה." });
       }
       setIsItemDialogOpen(false);
@@ -504,10 +524,22 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                 <CardDescription>מספר סריאלי: <span className="font-semibold">{item.itemId}</span></CardDescription>
               </CardHeader>
               <CardContent className="flex-grow space-y-1">
-                {item.linkedSoldierName && (
-                  <p className="text-sm flex items-center"><User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל: <span className="font-semibold ms-1">{item.linkedSoldierName}</span></p>
+                {item.linkedSoldierId ? (
+                  <>
+                    {item.linkedSoldierName && (
+                      <p className="text-sm flex items-center">
+                        <User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל: <span className="font-semibold ms-1">{item.linkedSoldierName}</span>
+                      </p>
+                    )}
+                    {item.linkedSoldierDivisionName && (
+                      <p className="text-sm flex items-center">
+                        <Building className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> פלוגה: <span className="font-semibold ms-1">{item.linkedSoldierDivisionName}</span>
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground flex items-center"><User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" />לא משויך לחייל</p>
                 )}
-                {!item.linkedSoldierId && <p className="text-sm text-muted-foreground flex items-center"><User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" />לא משויך לחייל</p>}
               </CardContent>
               <CardFooter className="flex justify-end gap-2">
                  <Button variant="ghost" size="icon" onClick={() => openEditItemDialog(item)}>

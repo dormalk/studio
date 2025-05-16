@@ -43,4 +43,6 @@ export interface ArmoryItem {
   photoDataUri?: string; // Temporary, for AI scanning
   linkedSoldierId?: string; // Optional: ID of the soldier this item is linked to
   linkedSoldierName?: string; // Optional: Denormalized for display
+  linkedSoldierDivisionName?: string; // Optional: Denormalized division name of the linked soldier
 }
+

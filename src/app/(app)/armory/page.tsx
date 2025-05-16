@@ -1,32 +1,22 @@
 
 import { getArmoryItems, getArmoryItemTypes } from "@/actions/armoryActions";
-import { getSoldiers } from "@/actions/soldierActions";
+import { getSoldiers } from "@/actions/soldierActions"; // Still needed for linking
 import type { ArmoryItem, ArmoryItemType, Soldier } from "@/types";
 import { ArmoryManagementClient } from "./ArmoryManagementClient"; // Client component
 
 export const dynamic = 'force-dynamic';
 
 export default async function ArmoryPage() {
-  const armoryItemsData = getArmoryItems();
+  // getArmoryItems will now handle full enrichment including type names, soldier names, and soldier division names
+  const armoryItemsData = getArmoryItems(); 
   const armoryItemTypesData = getArmoryItemTypes();
-  const soldiersData = getSoldiers();
+  const soldiersData = getSoldiers(); // Soldiers list is needed for the "link to soldier" dropdown
 
-  const [rawArmoryItems, armoryItemTypes, soldiers] = await Promise.all([
+  const [armoryItems, armoryItemTypes, soldiers] = await Promise.all([
     armoryItemsData, 
     armoryItemTypesData,
     soldiersData
   ]);
-
-  // Enrich armory items with item type names and linked soldier names
-  const armoryItems = rawArmoryItems.map(item => {
-    const type = armoryItemTypes.find(t => t.id === item.itemTypeId);
-    const soldier = item.linkedSoldierId ? soldiers.find(s => s.id === item.linkedSoldierId) : undefined;
-    return {
-      ...item,
-      itemTypeName: type ? type.name : "סוג לא ידוע",
-      linkedSoldierName: soldier ? soldier.name : undefined
-    };
-  });
   
   return (
     <div className="container mx-auto py-8">
@@ -38,3 +28,4 @@ export default async function ArmoryPage() {
     </div>
   );
 }
+
