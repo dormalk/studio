@@ -60,7 +60,7 @@ const armoryItemSchema = z.object({
   itemId: z.string().min(1, "מספר סריאלי הינו שדה חובה"), // Now mandatory
   description: z.string().optional(),
   photoDataUri: z.string().optional(),
-  linkedSoldierId: z.string().optional(),
+  linkedSoldierId: z.string().optional(), // Can be our placeholder or an actual ID or empty
 });
 
 const armoryItemTypeSchema = z.object({
@@ -75,6 +75,8 @@ interface ArmoryManagementClientProps {
   initialArmoryItemTypes: ArmoryItemType[];
   initialSoldiers: Soldier[];
 }
+
+const NO_SOLDIER_LINKED_VALUE = "__NO_SOLDIER_LINKED__";
 
 export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTypes, initialSoldiers }: ArmoryManagementClientProps) {
   const [armoryItems, setArmoryItems] = useState<ArmoryItem[]>(initialArmoryItems);
@@ -123,7 +125,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         itemTypeId: editingItem.itemTypeId,
         itemId: editingItem.itemId,
         description: editingItem.description || "",
-        linkedSoldierId: editingItem.linkedSoldierId || "",
+        linkedSoldierId: editingItem.linkedSoldierId || "", // if undefined/empty, Select shows placeholder
       });
       setScannedImagePreview(editingItem.imageUrl || null);
     } else {
@@ -181,17 +183,30 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
   const handleAddOrUpdateItem = async (values: ArmoryItemFormData) => {
     try {
+      let soldierIdToSave: string | undefined;
+      if (values.linkedSoldierId === NO_SOLDIER_LINKED_VALUE || !values.linkedSoldierId) {
+        soldierIdToSave = undefined;
+      } else {
+        soldierIdToSave = values.linkedSoldierId;
+      }
+
       const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'imageUrl' | 'createdAt'> & { imageUrl?: string } = {
         name: values.name,
         itemTypeId: values.itemTypeId,
         itemId: values.itemId,
         description: values.description,
-        linkedSoldierId: values.linkedSoldierId || undefined, // Ensure it's undefined if empty string
+        linkedSoldierId: soldierIdToSave,
       };
       
-      if (editingItem?.imageUrl) {
+      if (values.photoDataUri && !editingItem) { // Only use photoDataUri for new items if provided for AI scan
+         // Potentially, upload scannedImagePreview if it's from photoDataUri and a new item without existing imageUrl
+         // For now, assuming imageUrl is either pre-existing or not set by scan for simplicity.
+         // If an image was scanned and successfully identified, its URL isn't automatically handled for saving yet.
+         // This part might need enhancement if image persistence from scan is required beyond just ID/type.
+      } else if (editingItem?.imageUrl) {
         dataToSave.imageUrl = editingItem.imageUrl;
       }
+
 
       let updatedOrNewItem;
       const itemTypeName = armoryItemTypes.find(t => t.id === dataToSave.itemTypeId)?.name || "לא ידוע";
@@ -199,12 +214,13 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
       if (editingItem) {
         await updateArmoryItem(editingItem.id, dataToSave);
-        updatedOrNewItem = { ...editingItem, ...dataToSave, itemTypeName, linkedSoldierName };
+        updatedOrNewItem = { ...editingItem, ...dataToSave, itemTypeName, linkedSoldierName, imageUrl: dataToSave.imageUrl };
         setArmoryItems(prev => prev.map(item => item.id === editingItem.id ? updatedOrNewItem : item));
         toast({ title: "הצלחה", description: "פרטי הפריט עודכנו." });
       } else {
         const newItemServer = await addArmoryItem(dataToSave);
-        updatedOrNewItem = { ...newItemServer, itemTypeName, linkedSoldierName };
+         // newItemServer won't have imageUrl from dataToSave unless explicitly passed and handled by addArmoryItem
+        updatedOrNewItem = { ...newItemServer, itemTypeName, linkedSoldierName, imageUrl: dataToSave.imageUrl }; // Ensure imageUrl is included
         setArmoryItems(prev => [...prev, updatedOrNewItem]);
         toast({ title: "הצלחה", description: "פריט נוסף בהצלחה." });
       }
@@ -251,6 +267,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       }
       itemTypeForm.reset();
       setEditingItemType(null);
+      setIsItemTypeDialogOpen(false); // Close dialog after successful operation
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "פעולה נכשלה." });
     }
@@ -269,6 +286,8 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   const openEditItemTypeDialog = (itemType: ArmoryItemType) => {
     setEditingItemType(itemType);
     itemTypeForm.reset({ name: itemType.name });
+    // Ensure dialog is open if this is called, though usually triggered from within it
+    setIsItemTypeDialogOpen(true); 
   };
 
 
@@ -421,7 +440,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                             <SelectValue placeholder="בחר חייל (אופציונלי)..." />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">ללא שיוך</SelectItem>
+                            <SelectItem value={NO_SOLDIER_LINKED_VALUE}>ללא שיוך</SelectItem>
                             {soldiers.map(soldier => (
                               <SelectItem key={soldier.id} value={soldier.id}>{soldier.name} ({soldier.id})</SelectItem>
                             ))}
@@ -540,3 +559,4 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     </div>
   );
 }
+
