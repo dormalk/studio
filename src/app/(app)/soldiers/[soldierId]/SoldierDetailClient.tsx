@@ -22,14 +22,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Timestamp } from "firebase/firestore"; // Keep for formatDate flexibility
+import type { Timestamp } from "firebase/firestore"; 
 import { uploadSoldierDocument, deleteSoldierDocument, updateSoldier } from "@/actions/soldierActions";
 import {
     addArmoryItem,
     scanArmoryItemImage,
     manageSoldierAssignmentToNonUniqueItem,
     getArmoryItemsBySoldierId,
-    getArmoryItems // Import for refreshing available non-unique items
+    getArmoryItems 
 } from "@/actions/armoryActions";
 import Link from "next/link";
 import Image from "next/image";
@@ -245,7 +245,6 @@ export function SoldierDetailClient({
     formData.append("file", selectedFile);
 
     try {
-      // uploadSoldierDocument returns SoldierDocument with uploadedAt as ISO string
       const newDocument = await uploadSoldierDocument(soldier.id, formData);
       setSoldier(prev => {
         if (!prev) return prev;
@@ -481,7 +480,7 @@ export function SoldierDetailClient({
       date = new Date(timestampInput);
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { // More generic check
+    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { 
       date = (timestampInput as any).toDate();
     } else {
       console.warn("Invalid date input to formatDate:", timestampInput);

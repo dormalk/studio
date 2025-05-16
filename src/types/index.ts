@@ -18,7 +18,7 @@ export interface SoldierDocument {
   downloadURL: string;
   fileType: string; // MIME type
   fileSize: number; // in bytes
-  uploadedAt: string; // ISO string format for client-side
+  uploadedAt: string; // ISO string format for client-side (converted from Firestore Timestamp)
 }
 
 export interface Soldier {

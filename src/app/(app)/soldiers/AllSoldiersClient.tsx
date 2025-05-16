@@ -53,7 +53,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Timestamp } from "firebase/firestore"; // Keep for formatDate flexibility
+import type { Timestamp } from "firebase/firestore"; 
 import * as XLSX from 'xlsx';
 
 const soldierSchema = z.object({
@@ -139,8 +139,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       } else {
         const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
         updatedOrNewSoldier = {
-            ...newSoldierServerData, // This includes documents: [] and already converted uploadedAt if any
-            documents: newSoldierServerData.documents || [] // Ensure documents is an array
+            ...newSoldierServerData, 
+            documents: newSoldierServerData.documents || [] 
         };
         setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
         toast({ title: "הצלחה", description: "חייל נוסף בהצלחה." });
@@ -190,7 +190,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     formData.append("file", selectedFile);
 
     try {
-      // uploadSoldierDocument returns SoldierDocument with uploadedAt as ISO string
       const newDocument = await uploadSoldierDocument(editingSoldier.id, formData);
       setEditingSoldier(prev => {
         if (!prev) return null;
@@ -276,7 +275,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         }) as Array<any[]>;
 
         if (!jsonDataRaw || jsonDataRaw.length < 1) {
-          toast({ variant: "destructive", title: "שגיאה", description: "הקובץ ריק או שאינו בפורמט Excel תקין (נדרשת שורת כותרות לפחות)." });
+          toast({ variant: "destructive", title: "שגיאת מבנה קובץ", description: "הקובץ ריק או שאינו בפורמט Excel תקין (נדרשת שורת כותרות לפחות)." });
           setIsImporting(false);
           return;
         }
@@ -330,7 +329,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const result: ImportResult = await importSoldiers(soldiersToImport);
 
         if (result.successCount > 0) {
-          // result.addedSoldiers already have uploadedAt as string if needed
           setSoldiers(prev => [...prev, ...result.addedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
           toast({
             title: "ייבוא הושלם",
@@ -399,7 +397,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       date = new Date(timestampInput);
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { // More generic check for Timestamp-like
+    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { 
       date = (timestampInput as any).toDate();
     } else {
       console.warn("Invalid date input to formatDate:", timestampInput);
