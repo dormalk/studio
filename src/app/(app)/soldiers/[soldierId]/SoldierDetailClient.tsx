@@ -300,8 +300,13 @@ export function SoldierDetailClient({
       setEditableFileName("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
-      console.error("Client-side document upload error details:", error);
-      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה." });
+      console.error("--- CLIENT-SIDE ERROR (handleDocumentUpload) ---");
+      console.error("Error object received by client:", error);
+      if (error && typeof error === 'object' && error.message) {
+        console.error("Client-side error message:", error.message);
+      }
+      console.error("----------------------------------------------");
+      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה. בדוק את הלוגים לפרטים נוספים." });
     } finally {
       setIsUploading(false);
     }
@@ -573,7 +578,7 @@ export function SoldierDetailClient({
         .filter(item => 
             item.isUniqueItem && 
             !item.linkedSoldierId &&
-            (!linkItemSearchTerm || item.itemId?.toLowerCase().includes(linkItemSearchTerm.toLowerCase()))
+            (!linkItemSearchTerm || (item.itemId || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()))
         )
         .sort((a,b) => (a.itemTypeName || "").localeCompare(b.itemTypeName || "") || (a.itemId || "").localeCompare(b.itemId || ""));
   }, [allExistingArmoryItems, linkItemSearchTerm]);
@@ -836,15 +841,6 @@ export function SoldierDetailClient({
                             {addOrLinkDialogMode === 'link' && (
                                 <form onSubmit={linkExistingItemForm.handleSubmit(handleLinkExistingUniqueArmoryItem)} className="space-y-4 mt-4">
                                     <div>
-                                        <Label htmlFor="linkItemSearch">חפש פריט לפי מספר סריאלי</Label>
-                                        <Input 
-                                            id="linkItemSearch" 
-                                            value={linkItemSearchTerm} 
-                                            onChange={(e) => setLinkItemSearchTerm(e.target.value)}
-                                            placeholder="הכנס מספר סריאלי לחיפוש..."
-                                        />
-                                    </div>
-                                    <div>
                                         <Label htmlFor="existingArmoryItemIdToLinkSelect">בחר פריט קיים (ייחודי, לא משויך)</Label>
                                         <Controller
                                             name="existingArmoryItemIdToLink"
@@ -855,8 +851,20 @@ export function SoldierDetailClient({
                                                         <SelectValue placeholder="בחר פריט לקשירה..." />
                                                     </SelectTrigger>
                                                     <SelectContent>
+                                                        <div className="p-2 sticky top-0 bg-background z-10">
+                                                            <Input 
+                                                                placeholder="סנן לפי מספר סריאלי..."
+                                                                value={linkItemSearchTerm} 
+                                                                onChange={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setLinkItemSearchTerm(e.target.value);
+                                                                }}
+                                                                onKeyDown={(e) => e.stopPropagation()} // Prevent select closing on Enter/Space
+                                                                className="w-full"
+                                                            />
+                                                        </div>
                                                         {availableUniqueItemsToLink.length === 0 ? (
-                                                            <div className="p-2 text-sm text-muted-foreground">לא נמצאו פריטים ייחודיים פנויים התואמים לחיפוש.</div>
+                                                            <div className="p-2 text-sm text-muted-foreground text-center">לא נמצאו פריטים ייחודיים פנויים התואמים לחיפוש.</div>
                                                         ) : (
                                                             availableUniqueItemsToLink.map(item => (
                                                                 <SelectItem key={item.id} value={item.id}>
@@ -1042,3 +1050,5 @@ export function SoldierDetailClient({
   );
 }
 
+
+    
