@@ -1,31 +1,30 @@
 
 import { getArmoryItems, getArmoryItemTypes } from "@/actions/armoryActions";
-import { getSoldiers } from "@/actions/soldierActions"; // Still needed for linking
+import { getSoldiers } from "@/actions/soldierActions";
 import type { ArmoryItem, ArmoryItemType, Soldier } from "@/types";
-import { ArmoryManagementClient } from "./ArmoryManagementClient"; // Client component
+import { ArmoryManagementClient } from "./ArmoryManagementClient"; 
 
 export const dynamic = 'force-dynamic';
 
 export default async function ArmoryPage() {
-  // getArmoryItems will now handle full enrichment including type names, soldier names, and soldier division names
   const armoryItemsData = getArmoryItems(); 
   const armoryItemTypesData = getArmoryItemTypes();
-  const soldiersData = getSoldiers(); // Soldiers list is needed for the "link to soldier" dropdown
+  const soldiersData = getSoldiers(); 
 
-  const [armoryItems, armoryItemTypes, soldiers] = await Promise.all([
+  const [initialArmoryItems, initialArmoryItemTypes, initialSoldiers] = await Promise.all([
     armoryItemsData, 
     armoryItemTypesData,
     soldiersData
   ]);
   
+  // The enrichment of itemTypeName, isUniqueItem, linkedSoldierName, etc. is now handled within getArmoryItems
   return (
     <div className="container mx-auto py-8">
       <ArmoryManagementClient 
-        initialArmoryItems={armoryItems} 
-        initialArmoryItemTypes={armoryItemTypes}
-        initialSoldiers={soldiers} 
+        initialArmoryItems={initialArmoryItems} 
+        initialArmoryItemTypes={initialArmoryItemTypes} // Ensure this includes isUnique
+        initialSoldiers={initialSoldiers} 
       />
     </div>
   );
 }
-

@@ -14,11 +14,12 @@ const divisionsCollection = collection(db, "divisions");
 
 // Armory Item Type Actions
 
-export async function addArmoryItemType(itemTypeData: { name: string }): Promise<ArmoryItemType> {
+export async function addArmoryItemType(itemTypeData: { name: string; isUnique: boolean }): Promise<ArmoryItemType> {
   try {
     const q = query(armoryItemTypesCollection, where("name", "==", itemTypeData.name));
     const existingTypesSnapshot = await getDocs(q);
     if (!existingTypesSnapshot.empty) {
+      // Consider if same name but different isUnique is allowed. For now, name is unique.
       // throw new Error(`סוג פריט בשם "${itemTypeData.name}" כבר קיים.`);
     }
 
@@ -43,8 +44,10 @@ export async function getArmoryItemTypes(): Promise<ArmoryItemType[]> {
   }
 }
 
-export async function updateArmoryItemType(id: string, updates: { name: string }): Promise<void> {
+export async function updateArmoryItemType(id: string, updates: { name: string; isUnique: boolean }): Promise<void> {
   try {
+    // Future: Consider implications if isUnique changes for existing items.
+    // For now, this action only updates the type definition.
     const itemTypeDoc = doc(db, "armoryItemTypes", id);
     await updateDoc(itemTypeDoc, updates);
     revalidatePath("/armory");
@@ -75,22 +78,41 @@ export async function deleteArmoryItemType(id: string): Promise<void> {
 
 // Armory Item Actions
 
-export async function addArmoryItem(itemData: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt'>): Promise<ArmoryItem> {
+export async function addArmoryItem(
+  itemData: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt'>
+): Promise<ArmoryItem> {
   try {
-    const docRef = await addDoc(armoryCollection, {
-      ...itemData,
+    const dataToSave: any = {
+      itemTypeId: itemData.itemTypeId,
+      isUniqueItem: itemData.isUniqueItem,
+      imageUrl: itemData.imageUrl, // Retain imageUrl if provided (e.g. from scan)
       createdAt: serverTimestamp(),
-    });
+    };
+
+    if (itemData.isUniqueItem) {
+      dataToSave.itemId = itemData.itemId;
+      if (itemData.linkedSoldierId) {
+        dataToSave.linkedSoldierId = itemData.linkedSoldierId;
+      }
+    } else {
+      dataToSave.totalQuantity = itemData.totalQuantity;
+      // linkedSoldierId is not applicable for non-unique items in this simplified model
+    }
+    
+    const docRef = await addDoc(armoryCollection, dataToSave);
     revalidatePath("/armory");
-    if (itemData.linkedSoldierId) {
+    if (itemData.isUniqueItem && itemData.linkedSoldierId) {
         revalidatePath(`/soldiers/${itemData.linkedSoldierId}`); 
     }
+
+    // Construct what the client expects, including potentially denormalized fields
+    // This part is tricky as full denormalization (soldier name, etc.) happens in getArmoryItems
     return { 
         id: docRef.id, 
-        ...itemData, 
-        itemTypeName: "", 
-        linkedSoldierName: "", 
-        linkedSoldierDivisionName: "" 
+        ...itemData, // This includes what was passed (itemTypeId, isUniqueItem, itemId OR totalQuantity, linkedSoldierId if unique)
+        itemTypeName: "", // Will be enriched by client or getArmoryItems
+        linkedSoldierName: "", // Will be enriched by client or getArmoryItems
+        linkedSoldierDivisionName: "" // Will be enriched by client or getArmoryItems
     }; 
   } catch (error) {
     console.error("Error adding armory item: ", error);
@@ -104,43 +126,48 @@ export async function getArmoryItems(): Promise<ArmoryItem[]> {
         getDocs(armoryCollection),
         getDocs(armoryItemTypesCollection),
         getDocs(soldiersCollection),
-        getDocs(divisionsCollection) // Fetch divisions
+        getDocs(divisionsCollection)
     ]);
     
-    const typesMap = new Map(typesSnapshot.docs.map(doc => [doc.id, doc.data().name as string]));
-    const soldiersDataMap = new Map(soldiersSnapshot.docs.map(doc => {
-        const data = doc.data() as Omit<Soldier, 'id' | 'divisionName' | 'documents'> & { id: string };
-        return [doc.id, { name: data.name, divisionId: data.divisionId }];
+    const typesMap = new Map(typesSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return [doc.id, { name: data.name as string, isUnique: data.isUnique as boolean }];
     }));
-    const divisionsMap = new Map(divisionsSnapshot.docs.map(doc => [doc.id, doc.data().name as string]));
+
+    const soldiersDataMap = new Map(soldiersSnapshot.docs.map(docSnap => {
+        const data = docSnap.data() as Omit<Soldier, 'id' | 'divisionName' | 'documents'> & { id: string };
+        return [docSnap.id, { name: data.name, divisionId: data.divisionId }];
+    }));
+    const divisionsMap = new Map(divisionsSnapshot.docs.map(docSnap => [docSnap.id, docSnap.data().name as string]));
 
     const items = itemsSnapshot.docs.map(docSnapshot => {
         const data = docSnapshot.data();
-        let linkedSoldierName: string | undefined = undefined;
-        let linkedSoldierDivisionName: string | undefined = undefined;
+        const itemTypeInfo = typesMap.get(data.itemTypeId) || { name: "סוג לא ידוע", isUnique: true }; // Default to unique if type not found
 
-        if (data.linkedSoldierId) {
-            const soldierData = soldiersDataMap.get(data.linkedSoldierId);
+        const armoryItem: ArmoryItem = {
+            id: docSnapshot.id,
+            itemTypeId: data.itemTypeId || "unknown_type_id",
+            itemTypeName: itemTypeInfo.name,
+            isUniqueItem: data.isUniqueItem !== undefined ? data.isUniqueItem : itemTypeInfo.isUnique, // Prefer stored, fallback to type's
+            imageUrl: data.imageUrl,
+            // Conditional fields
+            itemId: data.isUniqueItem ? data.itemId : undefined,
+            totalQuantity: !data.isUniqueItem ? data.totalQuantity : undefined,
+            linkedSoldierId: data.isUniqueItem ? data.linkedSoldierId : undefined,
+        };
+
+        if (armoryItem.isUniqueItem && armoryItem.linkedSoldierId) {
+            const soldierData = soldiersDataMap.get(armoryItem.linkedSoldierId);
             if (soldierData) {
-                linkedSoldierName = soldierData.name;
+                armoryItem.linkedSoldierName = soldierData.name;
                 if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
-                    linkedSoldierDivisionName = divisionsMap.get(soldierData.divisionId) || "פלוגה לא ידועה";
+                    armoryItem.linkedSoldierDivisionName = divisionsMap.get(soldierData.divisionId) || "פלוגה לא ידועה";
                 } else if (soldierData.divisionId === "unassigned") {
-                    linkedSoldierDivisionName = "לא משויך לפלוגה";
+                    armoryItem.linkedSoldierDivisionName = "לא משויך לפלוגה";
                 }
             }
         }
-
-        return { 
-            id: docSnapshot.id, 
-            itemTypeId: data.itemTypeId || "unknown_type_id", 
-            itemId: data.itemId || "N/A",
-            imageUrl: data.imageUrl,
-            linkedSoldierId: data.linkedSoldierId,
-            itemTypeName: typesMap.get(data.itemTypeId) || "סוג לא ידוע",
-            linkedSoldierName: linkedSoldierName,
-            linkedSoldierDivisionName: linkedSoldierDivisionName,
-        } as ArmoryItem; 
+        return armoryItem;
     });
     return items;
   } catch (error) {
@@ -151,7 +178,9 @@ export async function getArmoryItems(): Promise<ArmoryItem[]> {
 
 export async function getArmoryItemsBySoldierId(soldierId: string): Promise<ArmoryItem[]> {
   try {
-    const q = query(armoryCollection, where("linkedSoldierId", "==", soldierId));
+    // This function needs significant change if non-unique items can be assigned by quantity.
+    // For now, it will only fetch items where linkedSoldierId (for unique items) matches.
+    const q = query(armoryCollection, where("linkedSoldierId", "==", soldierId), where("isUniqueItem", "==", true));
     const itemsSnapshot = await getDocs(q);
     
     if (itemsSnapshot.empty) return [];
@@ -162,50 +191,47 @@ export async function getArmoryItemsBySoldierId(soldierId: string): Promise<Armo
       if (itemTypeId) itemTypeIds.add(itemTypeId);
     });
 
-    const typesMap = new Map<string, string>();
-    if (itemTypeIds.size > 0) {
-      const typesQuery = query(armoryItemTypesCollection, where("__name__", "in", Array.from(itemTypeIds)));
-      const typesSnapshot = await getDocs(typesQuery);
-      typesSnapshot.docs.forEach(doc => typesMap.set(doc.id, doc.data().name));
-    }
+    const typesData = await getArmoryItemTypes();
+    const typesMap = new Map(typesData.map(type => [type.id, type]));
     
     const soldierDocRef = doc(soldiersCollection, soldierId);
     const soldierDocSnap = await getDoc(soldierDocRef);
     
     let soldierName: string | undefined = undefined;
-    let soldierDivisionId: string | undefined = undefined;
     let soldierDivisionName: string | undefined = undefined;
 
     if (soldierDocSnap.exists()) {
         const soldierData = soldierDocSnap.data() as Soldier;
         soldierName = soldierData.name;
-        soldierDivisionId = soldierData.divisionId;
-        if (soldierDivisionId && soldierDivisionId !== "unassigned") {
-            const divisionDocRef = doc(divisionsCollection, soldierDivisionId);
+        if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
+            const divisionDocRef = doc(divisionsCollection, soldierData.divisionId);
             const divisionDocSnap = await getDoc(divisionDocRef);
             if (divisionDocSnap.exists()) {
                 soldierDivisionName = (divisionDocSnap.data() as Division).name;
             } else {
                 soldierDivisionName = "פלוגה לא ידועה";
             }
-        } else if (soldierDivisionId === "unassigned") {
+        } else if (soldierData.divisionId === "unassigned") {
             soldierDivisionName = "לא משויך לפלוגה";
         }
     }
 
     const items = itemsSnapshot.docs.map(docSnapshot => {
         const data = docSnapshot.data();
+        const itemType = typesMap.get(data.itemTypeId);
         return { 
             id: docSnapshot.id, 
             itemTypeId: data.itemTypeId || "unknown_type_id", 
+            isUniqueItem: true, // Queried for unique items
             itemId: data.itemId || "N/A",
             imageUrl: data.imageUrl,
-            linkedSoldierId: data.linkedSoldierId, // Should always be the soldierId passed to function
-            itemTypeName: typesMap.get(data.itemTypeId) || "סוג לא ידוע",
+            linkedSoldierId: data.linkedSoldierId,
+            itemTypeName: itemType ? itemType.name : "סוג לא ידוע",
             linkedSoldierName: soldierName, 
             linkedSoldierDivisionName: soldierDivisionName,
         } as ArmoryItem; 
     });
+    // TODO: Future - fetch non-unique items assigned to this soldier
     return items;
   } catch (error) {
     console.error(`Error fetching armory items for soldier ${soldierId}: `, error);
@@ -213,15 +239,36 @@ export async function getArmoryItemsBySoldierId(soldierId: string): Promise<Armo
   }
 }
 
-export async function updateArmoryItem(id: string, updates: Partial<Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt'>>): Promise<void> {
+export async function updateArmoryItem(
+  id: string, 
+  updates: Partial<Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt'>>
+): Promise<void> {
   try {
     const itemDocRef = doc(db, "armoryItems", id);
     const itemSnapshot = await getDoc(itemDocRef);
-    const oldLinkedSoldierId = itemSnapshot.data()?.linkedSoldierId;
+    const oldData = itemSnapshot.data();
+    const oldLinkedSoldierId = oldData?.linkedSoldierId;
 
-    await updateDoc(itemDocRef, updates);
+    const dataToUpdate: any = { ...updates };
+    // Ensure isUniqueItem is part of updates if it's there, or preserve existing
+    dataToUpdate.isUniqueItem = updates.isUniqueItem !== undefined ? updates.isUniqueItem : oldData?.isUniqueItem;
+
+
+    if (dataToUpdate.isUniqueItem) {
+      if (updates.itemId !== undefined) dataToUpdate.itemId = updates.itemId;
+      if (updates.linkedSoldierId !== undefined) dataToUpdate.linkedSoldierId = updates.linkedSoldierId;
+      else if (updates.linkedSoldierId === null) dataToUpdate.linkedSoldierId = null; // Explicitly unlinking
+      dataToUpdate.totalQuantity = deleteDoc; // Remove totalQuantity if switching to unique
+    } else {
+      if (updates.totalQuantity !== undefined) dataToUpdate.totalQuantity = updates.totalQuantity;
+      dataToUpdate.itemId = deleteDoc; // Remove itemId if switching to non-unique
+      dataToUpdate.linkedSoldierId = deleteDoc; // Remove linkedSoldierId
+    }
+
+
+    await updateDoc(itemDocRef, dataToUpdate);
     revalidatePath("/armory");
-    if (updates.linkedSoldierId) {
+    if (updates.linkedSoldierId) { // This applies if it's a unique item being linked/re-linked
         revalidatePath(`/soldiers/${updates.linkedSoldierId}`);
     }
     if (oldLinkedSoldierId && oldLinkedSoldierId !== updates.linkedSoldierId) {
@@ -237,13 +284,14 @@ export async function deleteArmoryItem(id: string): Promise<void> {
   try {
     const itemDocRef = doc(db, "armoryItems", id);
     const itemSnapshot = await getDoc(itemDocRef);
-    const linkedSoldierId = itemSnapshot.data()?.linkedSoldierId;
+    const itemData = itemSnapshot.data();
 
     await deleteDoc(itemDocRef);
     revalidatePath("/armory");
-    if (linkedSoldierId) {
-      revalidatePath(`/soldiers/${linkedSoldierId}`);
+    if (itemData?.isUniqueItem && itemData?.linkedSoldierId) {
+      revalidatePath(`/soldiers/${itemData.linkedSoldierId}`);
     }
+    // TODO: If non-unique items have assignments, those might need revalidation too.
   } catch (error) {
     console.error("Error deleting armory item: ", error);
     throw new Error("מחיקת פריט נכשלה.");
@@ -259,5 +307,3 @@ export async function scanArmoryItemImage(photoDataUri: string): Promise<{ itemT
     throw new Error("סריקת תמונת פריט נכשלה.");
   }
 }
-
-    
