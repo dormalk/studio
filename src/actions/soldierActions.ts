@@ -82,12 +82,11 @@ export async function getSoldiers(): Promise<Soldier[]> {
         divisionName,
         documents: data.documents?.map((docData: any) => ({
           ...docData,
-          // Ensure uploadedAt from Firestore (which is a Timestamp) is converted to ISO string
           uploadedAt: docData.uploadedAt instanceof Timestamp
             ? docData.uploadedAt.toDate().toISOString()
-            : (docData.uploadedAt && typeof docData.uploadedAt === 'object' && docData.uploadedAt.seconds) // Handle if it's already an object from a previous fetch
+            : (docData.uploadedAt && typeof docData.uploadedAt === 'object' && docData.uploadedAt.seconds) 
                 ? new Date(docData.uploadedAt.seconds * 1000 + (docData.uploadedAt.nanoseconds || 0) / 1000000).toISOString()
-                : (typeof docData.uploadedAt === 'string' ? docData.uploadedAt : new Date().toISOString()) // Fallback if it's already a string or unknown
+                : (typeof docData.uploadedAt === 'string' ? docData.uploadedAt : new Date().toISOString()) 
         })) || []
       } as Soldier;
     });
@@ -220,7 +219,6 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
           await deleteObject(storageRef);
         } catch (storageError) {
           console.error(`Error deleting document ${docToDelete.fileName} from storage: `, storageError);
-          // Do not re-throw here, try to remove Firestore entry anyway
         }
       }
     }
@@ -275,7 +273,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     const uploadTaskSnapshot = await uploadBytesResumable(storageRef, file);
     const downloadURL = await getDownloadURL(uploadTaskSnapshot.ref);
 
-    const firestoreTimestamp = Timestamp.now(); // Timestamp for Firestore
+    const firestoreTimestamp = Timestamp.now(); 
 
     const documentDataForFirestore = {
       id: uuidv4(),
@@ -284,7 +282,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
       downloadURL: downloadURL,
       fileType: file.type,
       fileSize: file.size,
-      uploadedAt: firestoreTimestamp // This is a Firestore Timestamp object
+      uploadedAt: firestoreTimestamp 
     };
 
     const soldierDocRef = doc(db, "soldiers", soldierId);
@@ -295,31 +293,29 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     revalidatePath(`/soldiers/${soldierId}`);
     revalidatePath("/soldiers");
 
-    // Return SoldierDocument with uploadedAt as ISO string for client
     return {
         ...documentDataForFirestore,
-        uploadedAt: firestoreTimestamp.toDate().toISOString() // Convert to ISO string for client
+        uploadedAt: firestoreTimestamp.toDate().toISOString() 
     };
 
   } catch (error: any) {
     console.error("Error uploading document: ", error);
-    // More detailed error logging
+    let errorMessage = "העלאת מסמך נכשלה עקב שגיאה לא צפויה.";
     if (error.code) { // Firebase errors often have a 'code' property
         console.error("Firebase error code:", error.code);
+        if (error.code === 'storage/unauthorized') {
+            errorMessage = "שגיאת הרשאות בהעלאת הקובץ. אנא בדוק את חוקי האבטחה של Firebase Storage.";
+        } else if (error.code === 'storage/canceled') {
+            errorMessage = "העלאת הקובץ בוטלה.";
+        } else if (error.message && (error.message.includes("arrayUnion() called with invalid data") || error.message.includes("serverTimestamp() can only be used with update() and set()"))) {
+           errorMessage = "שגיאת Firestore: נתונים לא תקינים בעת ניסיון הוספת המסמך למערך. נסה שוב.";
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+    } else if (error instanceof Error && error.message) {
+        errorMessage = error.message;
     }
-    if (error instanceof Error) {
-        if ((error as any).code === 'storage/unauthorized') {
-            throw new Error("שגיאת הרשאות בהעלאת הקובץ. אנא בדוק את חוקי האבטחה של Firebase Storage.");
-        }
-        if ((error as any).code === 'storage/canceled') {
-            throw new Error("העלאת הקובץ בוטלה.");
-        }
-        if (error.message.includes("arrayUnion() called with invalid data") || error.message.includes("serverTimestamp() can only be used with update() and set()")) {
-            throw new Error("שגיאת Firestore: נתונים לא תקינים בעת ניסיון הוספת המסמך למערך. נסה שוב.");
-        }
-        throw error; // Re-throw other errors
-    }
-    throw new Error("העלאת מסמך נכשלה עקב שגיאה לא צפויה.");
+    throw new Error(errorMessage);
   }
 }
 
@@ -334,7 +330,6 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
     if (!soldierSnap.exists()) {
       throw new Error("חייל לא נמצא.");
     }
-    // The documents array in Firestore contains Firestore Timestamps for uploadedAt
     const soldierData = soldierSnap.data() as Omit<Soldier, 'documents' | 'divisionName'> & { documents?: Array<any> };
     const updatedDocuments = soldierData.documents?.filter(docEntry => docEntry.id !== documentId) || [];
 
@@ -348,7 +343,6 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
     console.error("Error deleting document: ", error);
     if (error instanceof Error && (error as any).code === "storage/object-not-found") {
         console.warn(`File not found in storage at path: ${docStoragePath}, attempting to remove Firestore entry.`);
-        // Attempt to remove Firestore entry even if file not found in storage
         const soldierDocRef = doc(db, "soldiers", soldierId);
         const soldierSnap = await getDoc(soldierDocRef);
         if (soldierSnap.exists()) {
@@ -357,7 +351,7 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
             await updateDoc(soldierDocRef, { documents: updatedDocuments });
             revalidatePath(`/soldiers/${soldierId}`);
             revalidatePath("/soldiers");
-            return; // Successfully removed Firestore entry
+            return; 
         } else {
             throw new Error("חייל לא נמצא, לא ניתן להסיר את רשומת המסמך.");
         }
@@ -391,7 +385,7 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   for (let i = 0; i < soldiersData.length; i++) {
     const soldierRow = soldiersData[i];
-    const rowNumber = i + 2; // Assuming data starts from row 2 (after header)
+    const rowNumber = i + 2; 
 
     if (!soldierRow.id || !soldierRow.name || !soldierRow.divisionName) {
       errorCount++;
@@ -417,7 +411,6 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
     }
 
     try {
-      // addSoldier returns a Soldier object which already has uploadedAt converted to string if necessary
       const newSoldier = await addSoldier({
         id: soldierId,
         name: soldierName,
@@ -438,3 +431,6 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   return { successCount, errorCount, errors, addedSoldiers };
 }
+
+
+    
