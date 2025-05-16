@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Soldier, Division } from "@/types";
@@ -27,7 +28,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { addSoldier, transferSoldier, deleteSoldier, updateSoldier } from "@/actions/soldierActions";
-import { addDivision, deleteDivision, updateDivision } from "@/actions/divisionActions";
+import { addDivision, deleteDivision, updateDivision } from "@/actions/divisionActions"; // Stays as divisionActions, type Division
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import {
@@ -45,29 +46,29 @@ import {
 const soldierSchema = z.object({
   id: z.string().min(1, "ת.ז. הינו שדה חובה").regex(/^\d+$/, "ת.ז. חייבת להכיל מספרים בלבד"),
   name: z.string().min(1, "שם הינו שדה חובה"),
-  divisionId: z.string().min(1, "יש לבחור אוגדה"),
+  divisionId: z.string().min(1, "יש לבחור פלוגה"), // Changed
 });
 
-const divisionSchema = z.object({
-  name: z.string().min(1, "שם אוגדה הינו שדה חובה"),
+const divisionSchema = z.object({ // Variable name remains divisionSchema, tied to Division type
+  name: z.string().min(1, "שם פלוגה הינו שדה חובה"), // Changed
 });
 
 interface SoldiersManagementClientProps {
   initialSoldiers: Soldier[];
-  initialDivisions: Division[];
+  initialDivisions: Division[]; // Type remains Division, represents "Pluga" data
 }
 
 export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: SoldiersManagementClientProps) {
   const [soldiers, setSoldiers] = useState<Soldier[]>(initialSoldiers);
-  const [divisions, setDivisions] = useState<Division[]>(initialDivisions);
+  const [divisions, setDivisions] = useState<Division[]>(initialDivisions); // Represents "Plugas"
   const [searchTerm, setSearchTerm] = useState("");
   const [draggedSoldier, setDraggedSoldier] = useState<Soldier | null>(null);
   const { toast } = useToast();
 
   const [isSoldierDialogOpen, setIsSoldierDialogOpen] = useState(false);
-  const [isDivisionDialogOpen, setIsDivisionDialogOpen] = useState(false);
+  const [isDivisionDialogOpen, setIsDivisionDialogOpen] = useState(false); // For "Pluga" dialog
   const [editingSoldier, setEditingSoldier] = useState<Soldier | null>(null);
-  const [editingDivision, setEditingDivision] = useState<Division | null>(null);
+  const [editingDivision, setEditingDivision] = useState<Division | null>(null); // For "Pluga" edit
 
 
   const soldierForm = useForm<z.infer<typeof soldierSchema>>({
@@ -75,7 +76,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     defaultValues: { id: "", name: "", divisionId: "" },
   });
 
-  const divisionForm = useForm<z.infer<typeof divisionSchema>>({
+  const divisionForm = useForm<z.infer<typeof divisionSchema>>({ // For "Pluga" form
     resolver: zodResolver(divisionSchema),
     defaultValues: { name: "" },
   });
@@ -101,7 +102,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
   }, [editingSoldier, soldierForm, isSoldierDialogOpen]);
 
   useEffect(() => {
-    if (editingDivision) {
+    if (editingDivision) { // editing "Pluga"
       divisionForm.reset({ name: editingDivision.name });
     } else {
       divisionForm.reset({ name: "" });
@@ -116,12 +117,11 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     );
   }, [soldiers, searchTerm]);
 
-  const soldiersByDivision = useMemo(() => {
+  const soldiersByDivision = useMemo(() => { // soldiersByPluga conceptually
     const grouped: Record<string, Soldier[]> = {};
-    divisions.forEach(div => {
+    divisions.forEach(div => { // div here represents a "Pluga"
       grouped[div.id] = [];
     });
-    // For soldiers not in any current division (e.g. if a division was deleted)
     grouped["unassigned"] = [];
 
 
@@ -157,26 +157,25 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     }
   };
   
-  const handleAddOrUpdateDivision = async (values: z.infer<typeof divisionSchema>) => {
+  const handleAddOrUpdateDivision = async (values: z.infer<typeof divisionSchema>) => { // For "Pluga"
     try {
-      if (editingDivision) {
-        await updateDivision(editingDivision.id, values);
+      if (editingDivision) { // editing "Pluga"
+        await updateDivision(editingDivision.id, values); // updateDivision action for "Pluga"
         setDivisions(prev => prev.map(d => d.id === editingDivision.id ? { ...d, ...values } : d));
-        // Update soldier division names if division name changed
         setSoldiers(prevSoldiers => prevSoldiers.map(s => 
             s.divisionId === editingDivision.id ? { ...s, divisionName: values.name } : s
         ));
-        toast({ title: "הצלחה", description: "שם האוגדה עודכן." });
+        toast({ title: "הצלחה", description: "שם הפלוגה עודכן." }); // Changed
       } else {
-        const newDivision = await addDivision(values);
+        const newDivision = await addDivision(values); // addDivision action for "Pluga"
         setDivisions(prev => [...prev, newDivision]);
-        toast({ title: "הצלחה", description: "אוגדה נוספה בהצלחה." });
+        toast({ title: "הצלחה", description: "פלוגה נוספה בהצלחה." }); // Changed
       }
       setIsDivisionDialogOpen(false);
       setEditingDivision(null);
       divisionForm.reset();
     } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת אוגדה נכשלה." });
+      toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת פלוגה נכשלה." }); // Changed
     }
   };
 
@@ -190,31 +189,29 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     }
   };
 
-  const handleDeleteDivision = async (divisionId: string) => {
+  const handleDeleteDivision = async (divisionId: string) => { // Deleting "Pluga"
      if (soldiersByDivision[divisionId]?.length > 0) {
-      toast({ variant: "destructive", title: "שגיאה", description: "לא ניתן למחוק אוגדה עם חיילים משויכים. יש להעביר את החיילים תחילה."});
+      toast({ variant: "destructive", title: "שגיאה", description: "לא ניתן למחוק פלוגה עם חיילים משויכים. יש להעביר את החיילים תחילה."}); // Changed
       return;
     }
     try {
-      await deleteDivision(divisionId);
+      await deleteDivision(divisionId); // deleteDivision action for "Pluga"
       setDivisions(prev => prev.filter(d => d.id !== divisionId));
-      // Optionally, reassign soldiers from the deleted division to "unassigned"
-      // This is handled by revalidatePath on the server, or client-side update needed
       setSoldiers(prevSoldiers => 
         prevSoldiers.map(s => 
           s.divisionId === divisionId ? { ...s, divisionId: "unassigned", divisionName: "לא משויך" } : s
         )
       );
-      toast({ title: "הצלחה", description: "אוגדה נמחקה בהצלחה." });
+      toast({ title: "הצלחה", description: "פלוגה נמחקה בהצלחה." }); // Changed
     } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאה", description: error.message || "מחיקת אוגדה נכשלה." });
+      toast({ variant: "destructive", title: "שגיאה", description: error.message || "מחיקת פלוגה נכשלה." }); // Changed
     }
   };
 
   const onDragStart = (e: DragEvent<HTMLDivElement>, soldier: Soldier) => {
     setDraggedSoldier(soldier);
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", soldier.id); // Necessary for Firefox
+    e.dataTransfer.setData("text/plain", soldier.id);
   };
 
   const onDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -222,7 +219,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     e.dataTransfer.dropEffect = "move";
   };
 
-  const onDrop = async (e: DragEvent<HTMLDivElement>, targetDivisionId: string) => {
+  const onDrop = async (e: DragEvent<HTMLDivElement>, targetDivisionId: string) => { // target "Pluga" id
     e.preventDefault();
     if (!draggedSoldier || draggedSoldier.divisionId === targetDivisionId) {
       setDraggedSoldier(null);
@@ -230,7 +227,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     }
     try {
       await transferSoldier(draggedSoldier.id, targetDivisionId);
-      const targetDivision = divisions.find(d => d.id === targetDivisionId);
+      const targetDivision = divisions.find(d => d.id === targetDivisionId); // target "Pluga"
       setSoldiers(prev => prev.map(s => s.id === draggedSoldier.id ? { ...s, divisionId: targetDivisionId, divisionName: targetDivision?.name || "לא משויך" } : s));
       toast({ title: "הצלחה", description: `חייל ${draggedSoldier.name} הועבר בהצלחה.` });
     } catch (error: any) {
@@ -244,7 +241,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     setIsSoldierDialogOpen(true);
   };
 
-  const openEditDivisionDialog = (division: Division) => {
+  const openEditDivisionDialog = (division: Division) => { // Editing "Pluga"
     setEditingDivision(division);
     setIsDivisionDialogOpen(true);
   };
@@ -256,21 +253,21 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
         <div className="flex gap-2">
            <Dialog open={isDivisionDialogOpen} onOpenChange={(isOpen) => { setIsDivisionDialogOpen(isOpen); if (!isOpen) setEditingDivision(null); }}>
             <DialogTrigger asChild>
-              <Button><PlusCircle className="ms-2 h-4 w-4" /> הוסף אוגדה</Button>
+              <Button><PlusCircle className="ms-2 h-4 w-4" /> הוסף פלוגה</Button> {/* Changed */}
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>{editingDivision ? "ערוך אוגדה" : "הוסף אוגדה חדשה"}</DialogTitle>
+                <DialogTitle>{editingDivision ? "ערוך פלוגה" : "הוסף פלוגה חדשה"}</DialogTitle> {/* Changed */}
               </DialogHeader>
               <form onSubmit={divisionForm.handleSubmit(handleAddOrUpdateDivision)} className="space-y-4">
                 <div>
-                  <Label htmlFor="divisionName">שם האוגדה</Label>
+                  <Label htmlFor="divisionName">שם הפלוגה</Label> {/* Changed */}
                   <Input id="divisionName" {...divisionForm.register("name")} />
                   {divisionForm.formState.errors.name && <p className="text-destructive text-sm">{divisionForm.formState.errors.name.message}</p>}
                 </div>
                 <DialogFooter>
                   <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
-                  <Button type="submit">{editingDivision ? "שמור שינויים" : "הוסף אוגדה"}</Button>
+                  <Button type="submit">{editingDivision ? "שמור שינויים" : "הוסף פלוגה"}</Button> {/* Changed */}
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -296,17 +293,17 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
                   {soldierForm.formState.errors.name && <p className="text-destructive text-sm">{soldierForm.formState.errors.name.message}</p>}
                 </div>
                 <div>
-                  <Label htmlFor="divisionId">אוגדה</Label>
+                  <Label htmlFor="divisionId">פלוגה</Label> {/* Changed */}
                   <Controller
                     name="divisionId"
                     control={soldierForm.control}
                     render={({ field }) => (
                       <Select onValueChange={field.onChange} value={field.value}>
                         <SelectTrigger>
-                          <SelectValue placeholder="בחר אוגדה" />
+                          <SelectValue placeholder="בחר פלוגה" /> {/* Changed */}
                         </SelectTrigger>
                         <SelectContent>
-                          {divisions.map(div => (
+                          {divisions.map(div => ( // div represents "Pluga"
                             <SelectItem key={div.id} value={div.id}>{div.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -335,13 +332,13 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
       
       <ScrollArea className="w-full whitespace-nowrap pb-4">
         <div className="flex gap-6">
-          {divisions.map((division) => (
+          {divisions.map((division) => ( // division represents "Pluga"
             <Card
               key={division.id}
               className="min-w-[300px] w-[300px] flex-shrink-0 h-auto flex flex-col border-2 border-dashed border-transparent"
               onDragOver={onDragOver}
               onDrop={(e) => onDrop(e, division.id)}
-              data-division-id={division.id}
+              data-division-id={division.id} // Keep internal data attribute name
             >
               <CardHeader className="bg-muted/50">
                 <div className="flex justify-between items-center">
@@ -363,7 +360,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
                         <AlertDialogHeader>
                           <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
                           <AlertDialogDescription>
-                            האם אתה בטוח שברצונך למחוק את אוגדת "{division.name}"? פעולה זו אינה הפיכה.
+                            האם אתה בטוח שברצונך למחוק את פלוגת "{division.name}"? פעולה זו אינה הפיכה. {/* Changed */}
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -420,7 +417,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
                   </Card>
                 ))}
                 {soldiersByDivision[division.id]?.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">אין חיילים באוגדה זו.</p>
+                  <p className="text-sm text-muted-foreground text-center py-4">אין חיילים בפלוגה זו.</p> {/* Changed */}
                 )}
               </CardContent>
             </Card>
@@ -430,7 +427,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
             <Card
                 className="min-w-[300px] w-[300px] flex-shrink-0 h-auto flex flex-col border-2 border-dashed border-transparent"
                 onDragOver={onDragOver}
-                onDrop={(e) => onDrop(e, "unassigned")} // This drop target might need special handling or be disabled
+                onDrop={(e) => onDrop(e, "unassigned")}
                 data-division-id="unassigned"
               >
                 <CardHeader className="bg-muted/50">
@@ -490,3 +487,4 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     </div>
   );
 }
+    
