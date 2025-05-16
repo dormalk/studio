@@ -20,7 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="he" dir="rtl">
-      <body>
+      <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <Providers>
           {children}
           <Toaster />
