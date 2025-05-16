@@ -244,24 +244,59 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         
-        // Use the first row as headers, and provide default value for empty cells.
         const jsonDataRaw = XLSX.utils.sheet_to_json(worksheet, {
           header: 1, 
-          defval: '', // Treat empty cells as empty strings
-        }) as Array<{[key: string]: any}>;
+          defval: '', 
+        }) as Array<any[]>;
 
+        if (!jsonDataRaw || jsonDataRaw.length === 0) {
+          toast({ variant: "destructive", title: "שגיאה", description: "הקובץ ריק או שאינו בפורמט Excel תקין." });
+          setIsImporting(false);
+          return;
+        }
 
-        const soldiersToImport: SoldierImportData[] = jsonDataRaw
-          .map(row => ({
-            // Ensure values are strings and trimmed.
-            name: String(row["שם החייל"] || "").trim(),
-            id: String(row["מספר אישי"] || "").trim(),
-            divisionName: String(row["שם הפלוגה"] || "").trim(),
+        const headers = jsonDataRaw[0].map(header => String(header).trim());
+        const soldierNameHeader = "שם החייל";
+        const soldierIdHeader = "מספר אישי";
+        const divisionNameHeader = "שם הפלוגה";
+
+        const nameIndex = headers.indexOf(soldierNameHeader);
+        const idIndex = headers.indexOf(soldierIdHeader);
+        const divisionIndex = headers.indexOf(divisionNameHeader);
+
+        if (nameIndex === -1 || idIndex === -1 || divisionIndex === -1) {
+          let missingHeaders = [];
+          if (nameIndex === -1) missingHeaders.push(`"${soldierNameHeader}"`);
+          if (idIndex === -1) missingHeaders.push(`"${soldierIdHeader}"`);
+          if (divisionIndex === -1) missingHeaders.push(`"${divisionNameHeader}"`);
+          
+          toast({
+            variant: "destructive",
+            title: "שגיאת מבנה קובץ",
+            description: `הכותרות הבאות חסרות או שגויות בשורה הראשונה של הקובץ: ${missingHeaders.join(', ')}. ודא שהכותרות תואמות בדיוק (כולל אותיות גדולות/קטנות ורווחים) ונסה שנית.`,
+            duration: 15000,
+          });
+          setIsImporting(false);
+          return;
+        }
+        
+        const dataRows = jsonDataRaw.slice(1);
+        if (dataRows.length === 0) {
+            toast({ variant: "destructive", title: "שגיאה", description: "לא נמצאו שורות נתונים לייבוא בקובץ (לאחר שורת הכותרות)." });
+            setIsImporting(false);
+            return;
+        }
+
+        const soldiersToImport: SoldierImportData[] = dataRows
+          .map((rowArray: any[]) => ({
+            name: String(rowArray[nameIndex] || "").trim(),
+            id: String(rowArray[idIndex] || "").trim(),
+            divisionName: String(rowArray[divisionIndex] || "").trim(),
           }))
-          .filter(soldier => soldier.id && soldier.name && soldier.divisionName); // Filter out rows that are incomplete AFTER mapping
+          .filter(soldier => soldier.id && soldier.name && soldier.divisionName); 
 
-        if(soldiersToImport.length === 0){
-            toast({ variant: "destructive", title: "שגיאה", description: "לא נמצאו נתונים תקינים לייבוא בקובץ. ודא שהקובץ אינו ריק ושהעמודות 'שם החייל', 'מספר אישי', ו'שם הפלוגה' קיימות ומכילות ערכים (עם כותרות בשורה הראשונה)." });
+        if (soldiersToImport.length === 0) {
+            toast({ variant: "destructive", title: "שגיאה", description: "לא נמצאו שורות נתונים תקינות (עם כל השדות הנדרשים) לייבוא בקובץ. ודא שכל שורה מכילה ערכים עבור 'שם החייל', 'מספר אישי', ו'שם הפלוגה'." });
             setIsImporting(false);
             return;
         }
@@ -269,13 +304,12 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const result: ImportResult = await importSoldiers(soldiersToImport);
 
         if (result.successCount > 0) {
-          // Create full Soldier objects for the client-side state
           const newlyAddedSoldiers: Soldier[] = result.addedSoldiers.map(s => {
             const division = divisions.find(d => d.id === s.divisionId);
             return {
               ...s,
               divisionName: division ? division.name : "לא משויך",
-              documents: [] // New soldiers from import won't have documents yet
+              documents: [] 
             };
           });
           setSoldiers(prev => [...prev, ...newlyAddedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
@@ -310,9 +344,12 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           });
         }
         
-        if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length > 0) {
-            toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ (ייתכן שכולם כבר קיימים)." });
+        if (result.successCount === 0 && result.errorCount === 0 && dataRows.length > 0 && soldiersToImport.length > 0) {
+             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ (ייתכן שכולם כבר קיימים או שחלק מהשורות היו חסרות נתונים הכרחיים)." });
+        } else if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length === 0 && dataRows.length > 0) {
+            // This case is already covered by the check `if (soldiersToImport.length === 0)`
         }
+
 
         setImportFile(null);
         if (importFileInputRef.current) importFileInputRef.current.value = "";
@@ -365,13 +402,13 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                         <DialogTitle>ייבוא חיילים מקובץ Excel</DialogTitle>
                         <DialogDescription>
                             בחר קובץ Excel (.xlsx, .xls) לייבוא.
-                            הקובץ צריך להכיל את העמודות הבאות, עם כותרות בשורה הראשונה:
+                            הקובץ צריך להכיל את העמודות הבאות, עם כותרות בשורה הראשונה (סדר העמודות אינו משנה):
                             <ul className="list-disc list-inside my-2">
                                 <li>שם החייל</li>
                                 <li>מספר אישי</li>
                                 <li>שם הפלוגה</li>
                             </ul>
-                            סדר העמודות אינו משנה.
+                            ודא שהכותרות תואמות בדיוק לשמות אלו.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
@@ -610,6 +647,5 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
-
 
     
