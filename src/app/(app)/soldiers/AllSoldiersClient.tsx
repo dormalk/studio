@@ -138,7 +138,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         toast({ title: "הצלחה", description: "פרטי החייל עודכנו." });
       } else {
         const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
-        // newSoldierServerData already includes enriched divisionName
         updatedOrNewSoldier = { 
             ...newSoldierServerData,
             documents: [] 
@@ -261,7 +260,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           defval: '', 
         }) as Array<any[]>;
 
-        if (!jsonDataRaw || jsonDataRaw.length < 1) { // Need at least a header row
+        if (!jsonDataRaw || jsonDataRaw.length < 1) { 
           toast({ variant: "destructive", title: "שגיאה", description: "הקובץ ריק או שאינו בפורמט Excel תקין (נדרשת שורת כותרות לפחות)." });
           setIsImporting(false);
           return;
@@ -316,7 +315,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const result: ImportResult = await importSoldiers(soldiersToImport);
 
         if (result.successCount > 0) {
-          // Server action addSoldier already enriches with divisionName
           setSoldiers(prev => [...prev, ...result.addedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
           toast({
             title: "ייבוא הושלם",
@@ -377,16 +375,25 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
-  const formatDate = (timestamp: Timestamp | Date | undefined) => {
-    if (!timestamp) return 'לא זמין';
-    let date: Date | null = null;
-    if (timestamp instanceof Date) {
-        date = timestamp;
-    } else if (timestamp && typeof (timestamp as Timestamp).toDate === 'function') {
-        date = (timestamp as Timestamp).toDate();
+  const formatDate = (timestampInput: string | Date | Timestamp | undefined): string => {
+    if (!timestampInput) return 'לא זמין';
+    let date: Date;
+  
+    if (typeof timestampInput === 'string') {
+      date = new Date(timestampInput);
+    } else if (timestampInput instanceof Date) {
+      date = timestampInput;
+    } else if (timestampInput && typeof (timestampInput as Timestamp).toDate === 'function') {
+      date = (timestampInput as Timestamp).toDate();
+    } else {
+      return 'תאריך לא תקין';
     }
-    return date ? date.toLocaleDateString('he-IL') : 'לא זמין';
-  }
+  
+    if (isNaN(date.getTime())) {
+      return 'תאריך לא תקין';
+    }
+    return date.toLocaleDateString('he-IL');
+  };
 
   return (
     <div className="space-y-6">

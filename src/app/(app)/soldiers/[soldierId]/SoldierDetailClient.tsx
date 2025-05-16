@@ -80,14 +80,13 @@ const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRef
       });
     }
   }
-  // No specific validation for non-unique item quantity here as it's not added through this form directly
 });
 type ArmoryItemFormDataOnSoldierPage = z.infer<typeof armoryItemSchemaOnSoldierPage>;
 
 
 const assignNonUniqueSchema = z.object({
     selectedArmoryItemId: z.string().min(1, "יש לבחור פריט נשקייה"),
-    quantityToAssign: z.number().int().min(1, "כמות חייבת להיות מספר חיובי גדול מאפס"), // Changed from positive to min(1)
+    quantityToAssign: z.number().int().min(1, "כמות חייבת להיות מספר חיובי גדול מאפס"),
 });
 type AssignNonUniqueFormData = z.infer<typeof assignNonUniqueSchema>;
 
@@ -353,11 +352,10 @@ export function SoldierDetailClient({
     try {
       const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt' | 'totalQuantity' | 'assignments' | '_currentSoldierAssignedQuantity'> = {
         itemTypeId: validatedValues.itemTypeId,
-        isUniqueItem: type.isUnique, // Critical: use the selected type's isUnique property
+        isUniqueItem: type.isUnique, 
         itemId: type.isUnique ? validatedValues.itemId : undefined,
-        linkedSoldierId: soldier.id, // Always link to the current soldier for unique items
+        linkedSoldierId: soldier.id, 
         imageUrl: validatedValues.photoDataUri || undefined,
-        // totalQuantity is NOT set here as this form is for unique items or linking non-unique (which is handled elsewhere)
       };
 
       const newItemServer = await addArmoryItem(dataToSave);
@@ -366,23 +364,20 @@ export function SoldierDetailClient({
         id: newItemServer.id,
         itemTypeId: newItemServer.itemTypeId,
         itemTypeName: type.name,
-        isUniqueItem: type.isUnique, // Use type.isUnique
+        isUniqueItem: type.isUnique, 
         itemId: type.isUnique ? newItemServer.itemId : undefined,
-        linkedSoldierId: type.isUnique ? soldier.id : undefined, // Only link if unique
+        linkedSoldierId: type.isUnique ? soldier.id : undefined, 
         linkedSoldierName: type.isUnique ? soldier.name : undefined,
         linkedSoldierDivisionName: type.isUnique ? soldier.divisionName : undefined,
         imageUrl: newItemServer.imageUrl,
-        totalQuantity: !type.isUnique ? newItemServer.totalQuantity : undefined, // Should come from server if non-unique
+        totalQuantity: !type.isUnique ? newItemServer.totalQuantity : undefined, 
         assignments: !type.isUnique ? (newItemServer.assignments || []) : undefined,
       };
       
       if (type.isUnique) {
         setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
       }
-      // If it were a non-unique item being created *and directly assigned* here,
-      // we'd need to call manageSoldierAssignmentToNonUniqueItem, but this form is for creating new items.
-      // For assigning existing non-unique items, there's a separate dialog.
-
+      
       toast({ title: "הצלחה", description: `פריט נשקייה (${type.name}) נוסף ${type.isUnique ? 'ושויך לחייל' : 'למלאי'}.` });
       
       setIsAddUniqueArmoryItemDialogOpen(false); 
@@ -399,7 +394,7 @@ export function SoldierDetailClient({
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
 
-        const allItems = await getArmoryItems(); // Refresh all items to update available quantities
+        const allItems = await getArmoryItems(); 
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
@@ -420,7 +415,7 @@ export function SoldierDetailClient({
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
         
-        const allItems = await getArmoryItems(); // Refresh all items to update available quantities
+        const allItems = await getArmoryItems(); 
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
@@ -440,7 +435,7 @@ export function SoldierDetailClient({
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
 
-        const allItems = await getArmoryItems(); // Refresh all items to update available quantities
+        const allItems = await getArmoryItems(); 
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
@@ -463,16 +458,25 @@ export function SoldierDetailClient({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
-  const formatDate = (timestamp: Timestamp | Date | undefined) => {
-    if (!timestamp) return 'לא זמין';
-    let date: Date | null = null;
-    if (timestamp instanceof Date) {
-        date = timestamp;
-    } else if (timestamp && typeof (timestamp as Timestamp).toDate === 'function') {
-        date = (timestamp as Timestamp).toDate();
+  const formatDate = (timestampInput: string | Date | Timestamp | undefined): string => {
+    if (!timestampInput) return 'לא זמין';
+    let date: Date;
+  
+    if (typeof timestampInput === 'string') {
+      date = new Date(timestampInput);
+    } else if (timestampInput instanceof Date) {
+      date = timestampInput;
+    } else if (timestampInput && typeof (timestampInput as Timestamp).toDate === 'function') {
+      date = (timestampInput as Timestamp).toDate();
+    } else {
+      return 'תאריך לא תקין';
     }
-    return date ? date.toLocaleDateString('he-IL') : 'לא זמין';
-  }
+  
+    if (isNaN(date.getTime())) {
+      return 'תאריך לא תקין';
+    }
+    return date.toLocaleDateString('he-IL');
+  };
 
   if (!soldier) return <p>טוען פרטי חייל...</p>;
 
@@ -482,7 +486,6 @@ export function SoldierDetailClient({
 
   return (
     <div className="grid md:grid-cols-3 gap-8">
-      {/* Soldier Details Card */}
       <Card className="md:col-span-1">
         <CardHeader>
           <div className="flex justify-between items-start">
@@ -537,11 +540,9 @@ export function SoldierDetailClient({
           </div>
         </CardHeader>
         <CardContent>
-          {/* Placeholder for more soldier details if needed */}
         </CardContent>
       </Card>
 
-      {/* Documents Card */}
       <Card className="md:col-span-2">
         <CardHeader>
           <CardTitle>מסמכים מצורפים</CardTitle>
@@ -616,13 +617,11 @@ export function SoldierDetailClient({
         </CardContent>
       </Card>
 
-      {/* Linked Armory Items Card */}
       <Card className="md:col-span-3">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle>פריטי נשקייה משויכים</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-            {/* Unique Items Section */}
             <div>
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-lg font-semibold">פריטים ייחודיים ({uniqueItemsAssigned.length})</h3>
@@ -648,9 +647,8 @@ export function SoldierDetailClient({
                                                     const type = allArmoryItemTypes.find(t => t.id === value);
                                                     setSelectedItemTypeForSoldierPageIsUnique(type ? type.isUnique : null);
                                                     (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type ? type.isUnique : null;
-                                                    // Logic to ensure only unique item types are selectable if this dialog is strictly for unique items
                                                     if (type && !type.isUnique) {
-                                                        addUniqueArmoryItemForm.setValue("itemTypeId", ""); // Or show a toast
+                                                        addUniqueArmoryItemForm.setValue("itemTypeId", ""); 
                                                         toast({variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט ייחודי בלבד."})
                                                         setSelectedItemTypeForSoldierPageIsUnique(null);
                                                         (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
@@ -663,7 +661,7 @@ export function SoldierDetailClient({
                                                 <SelectValue placeholder="בחר סוג פריט ייחודי..." />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {allArmoryItemTypes.filter(type => type.isUnique).map(type => ( // Filter for unique types
+                                                {allArmoryItemTypes.filter(type => type.isUnique).map(type => ( 
                                                 <SelectItem key={type.id} value={type.id}>{type.name} (ייחודי)</SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -673,7 +671,7 @@ export function SoldierDetailClient({
                                     {addUniqueArmoryItemForm.formState.errors.itemTypeId && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.itemTypeId.message}</p>}
                                 </div>
 
-                                {selectedItemTypeForSoldierPageIsUnique === true && ( // This condition will always be true if itemTypeId is valid
+                                {selectedItemTypeForSoldierPageIsUnique === true && ( 
                                     <div>
                                         <Label htmlFor="armoryItemIdSoldierPage">מספר סריאלי</Label>
                                         <Input id="armoryItemIdSoldierPage" {...addUniqueArmoryItemForm.register("itemId")} />
@@ -741,7 +739,6 @@ export function SoldierDetailClient({
             
             <Separator />
 
-            {/* Non-Unique Items Section */}
             <div>
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-lg font-semibold">פריטים כמותיים שהוקצו ({nonUniqueItemsAssigned.length})</h3>
@@ -815,7 +812,7 @@ export function SoldierDetailClient({
                                         open={isUpdateQuantityDialogOpen && itemToUpdateAssignment?.id === item.id} 
                                         onOpenChange={(isOpen) => {
                                             if (isOpen) setItemToUpdateAssignment(item);
-                                            else setItemToUpdateAssignment(null); // Clear when closing
+                                            else setItemToUpdateAssignment(null); 
                                             setIsUpdateQuantityDialogOpen(isOpen);
                                         }}
                                     >

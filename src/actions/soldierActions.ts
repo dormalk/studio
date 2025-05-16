@@ -13,7 +13,7 @@ import {
   getDoc, 
   serverTimestamp, 
   arrayUnion,
-  Timestamp, // Added Timestamp import
+  Timestamp, 
   query,
   where,
   writeBatch
@@ -56,7 +56,7 @@ export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'do
         }
     }
 
-    return { ...newSoldierData, divisionName };
+    return { ...newSoldierData, divisionName, documents: [] };
   } catch (error) {
     console.error("Error adding soldier: ", error);
     if (error instanceof Error) throw error;
@@ -81,9 +81,11 @@ export async function getSoldiers(): Promise<Soldier[]> {
         id: docSnap.id, 
         ...data,
         divisionName,
-        documents: data.documents?.map((doc: SoldierDocument) => ({
-          ...doc,
-          // uploadedAt will be a Firestore Timestamp, client can convert if needed
+        documents: data.documents?.map((docData: any) => ({
+          ...docData,
+          uploadedAt: docData.uploadedAt instanceof Timestamp 
+            ? docData.uploadedAt.toDate().toISOString() 
+            : (docData.uploadedAt ? new Date(docData.uploadedAt).toISOString() : undefined), 
         })) || []
       } as Soldier;
     });
@@ -104,7 +106,7 @@ export async function getSoldierById(soldierId: string): Promise<Soldier | null>
       return null;
     }
 
-    const soldierData = soldierDocSnap.data() as Omit<Soldier, 'divisionName'>;
+    const soldierData = soldierDocSnap.data() as Omit<Soldier, 'divisionName' | 'documents'> & { documents?: Array<any> };
     let divisionName = "לא משויך";
     if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
       const divisionDocRef = doc(db, "divisions", soldierData.divisionId);
@@ -118,9 +120,11 @@ export async function getSoldierById(soldierId: string): Promise<Soldier | null>
       ...soldierData,
       id: soldierDocSnap.id,
       divisionName,
-      documents: soldierData.documents?.map(doc => ({
-        ...doc,
-        // uploadedAt will be a Firestore Timestamp
+      documents: soldierData.documents?.map(docData => ({
+        ...docData,
+        uploadedAt: docData.uploadedAt instanceof Timestamp 
+          ? docData.uploadedAt.toDate().toISOString() 
+          : (docData.uploadedAt ? new Date(docData.uploadedAt).toISOString() : undefined),
       })) || []
     } as Soldier;
   } catch (error) {
@@ -150,8 +154,13 @@ export async function getSoldiersByDivisionId(divisionId: string): Promise<Soldi
       return { 
         id: docSnap.id, 
         ...data,
-        divisionName: divisionName, // Add division name
-        documents: data.documents?.map((doc: SoldierDocument) => ({ ...doc })) || [],
+        divisionName: divisionName, 
+        documents: data.documents?.map((docData: any) => ({ 
+            ...docData,
+            uploadedAt: docData.uploadedAt instanceof Timestamp 
+            ? docData.uploadedAt.toDate().toISOString() 
+            : (docData.uploadedAt ? new Date(docData.uploadedAt).toISOString() : undefined),
+        })) || [],
       } as Soldier;
     });
     return soldiers.sort((a, b) => a.name.localeCompare(b.name));
@@ -178,7 +187,7 @@ export async function updateSoldier(soldierId: string, updates: Partial<Omit<Sol
         if (oldSoldierData?.divisionId && oldSoldierData.divisionId !== "unassigned") {
             revalidatePath(`/divisions/${oldSoldierData.divisionId}`); 
         }
-    } else if (updates.divisionId === undefined && oldSoldierData?.divisionId) { // divisionId might be removed or name updated
+    } else if (updates.divisionId === undefined && oldSoldierData?.divisionId) { 
         revalidatePath(`/divisions/${oldSoldierData.divisionId}`);
     }
     revalidatePath("/divisions"); 
@@ -198,7 +207,6 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
     }
     const soldierData = soldierSnap.data() as Soldier;
 
-    // Delete associated documents from Firebase Storage
     if (soldierData.documents && soldierData.documents.length > 0) {
       for (const docToDelete of soldierData.documents) {
         const storageRef = ref(storage, docToDelete.storagePath);
@@ -206,24 +214,19 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
           await deleteObject(storageRef);
         } catch (storageError) {
           console.error(`Error deleting document ${docToDelete.fileName} from storage: `, storageError);
-          // Continue deleting other files and Firestore entry even if one file fails
         }
       }
     }
 
-    // Unlink armory items
     const armoryItemsRef = collection(db, "armoryItems");
     const batch = writeBatch(db);
 
-    // Unique items
     const qArmoryUnique = query(armoryItemsRef, where("linkedSoldierId", "==", soldierId));
     const armorySnapshotUnique = await getDocs(qArmoryUnique);
     armorySnapshotUnique.forEach(itemDoc => {
         batch.update(itemDoc.ref, { linkedSoldierId: null }); 
     });
 
-    // Non-unique items (assignments)
-    // Fetch all non-unique items and filter/update their assignments array
     const allNonUniqueItemsSnapshot = await getDocs(query(armoryItemsRef, where("isUniqueItem", "==", false)));
     allNonUniqueItemsSnapshot.forEach(itemDoc => {
         const itemData = itemDoc.data() as ArmoryItem;
@@ -265,24 +268,31 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     const uploadTaskSnapshot = await uploadBytesResumable(storageRef, file);
     const downloadURL = await getDownloadURL(uploadTaskSnapshot.ref);
 
-    const newDocumentData: SoldierDocument = {
+    const firestoreTimestamp = Timestamp.now(); // Timestamp for Firestore
+
+    const documentDataForFirestore = {
       id: uuidv4(), 
       fileName: file.name,
       storagePath: storagePath,
       downloadURL: downloadURL,
       fileType: file.type,
       fileSize: file.size,
-      uploadedAt: Timestamp.now() // Use Timestamp.now() here
+      uploadedAt: firestoreTimestamp 
     };
 
     const soldierDocRef = doc(db, "soldiers", soldierId);
     await updateDoc(soldierDocRef, {
-      documents: arrayUnion(newDocumentData)
+      documents: arrayUnion(documentDataForFirestore)
     });
 
     revalidatePath(`/soldiers/${soldierId}`);
     revalidatePath("/soldiers"); 
-     return newDocumentData; // Return the same object that was added to the array
+    
+    // Return SoldierDocument with uploadedAt as ISO string for client
+    return {
+        ...documentDataForFirestore,
+        uploadedAt: firestoreTimestamp.toDate().toISOString()
+    };
 
   } catch (error) {
     console.error("Error uploading document: ", error);
@@ -294,6 +304,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
             throw new Error("העלאת הקובץ בוטלה.");
         }
         if (error.message.includes("arrayUnion() called with invalid data") || error.message.includes("serverTimestamp() can only be used with update() and set()")) {
+             // This specific message might change due to Timestamp.now() usage, but keeping it for general Firestore data errors
             throw new Error("שגיאת Firestore: נתונים לא תקינים בעת ניסיון הוספת המסמך למערך. נסה שוב.");
         }
         throw error;
@@ -305,18 +316,15 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
 // Delete a document for a soldier
 export async function deleteSoldierDocument(soldierId: string, documentId: string, docStoragePath: string): Promise<void> {
   try {
-    // First, attempt to delete from Firebase Storage
     const storageRefToDelete = ref(storage, docStoragePath);
     await deleteObject(storageRefToDelete);
 
-    // If successful, remove the document entry from Firestore
     const soldierDocRef = doc(db, "soldiers", soldierId);
     const soldierSnap = await getDoc(soldierDocRef);
     if (!soldierSnap.exists()) {
-      // This case should ideally not happen if we're deleting a doc for an existing soldier
       throw new Error("חייל לא נמצא.");
     }
-    const soldierData = soldierSnap.data() as Soldier;
+    const soldierData = soldierSnap.data() as Omit<Soldier, 'documents'> & { documents?: Array<any> };
     const updatedDocuments = soldierData.documents?.filter(docEntry => docEntry.id !== documentId) || [];
     
     await updateDoc(soldierDocRef, {
@@ -328,22 +336,20 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
   } catch (error) {
     console.error("Error deleting document: ", error);
     if (error instanceof Error && (error as any).code === "storage/object-not-found") {
-        // If file not found in storage, log it but still attempt to remove from Firestore
         console.warn(`File not found in storage at path: ${docStoragePath}, attempting to remove Firestore entry.`);
         const soldierDocRef = doc(db, "soldiers", soldierId);
         const soldierSnap = await getDoc(soldierDocRef);
         if (soldierSnap.exists()) {
-            const soldierData = soldierSnap.data() as Soldier;
+            const soldierData = soldierSnap.data() as Omit<Soldier, 'documents'> & { documents?: Array<any> };
             const updatedDocuments = soldierData.documents?.filter(d => d.id !== documentId) || [];
             await updateDoc(soldierDocRef, { documents: updatedDocuments });
             revalidatePath(`/soldiers/${soldierId}`);
             revalidatePath("/soldiers");
-            return; // Successfully removed from Firestore despite storage issue
+            return; 
         } else {
             throw new Error("חייל לא נמצא, לא ניתן להסיר את רשומת המסמך.");
         }
     }
-    // For other errors (e.g., storage/unauthorized, or Firestore update errors)
     throw new Error("מחיקת מסמך נכשלה.");
   }
 }
@@ -373,7 +379,7 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   for (let i = 0; i < soldiersData.length; i++) {
     const soldierRow = soldiersData[i];
-    const rowNumber = i + 2; // Assuming Excel row numbers start from 1 and header is row 1
+    const rowNumber = i + 2; 
 
     if (!soldierRow.id || !soldierRow.name || !soldierRow.divisionName) {
       errorCount++;
@@ -404,7 +410,6 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
         name: soldierName,
         divisionId: divisionId,
       });
-      // newSoldier from addSoldier already includes enriched divisionName
       addedSoldiers.push(newSoldier);
       successCount++;
     } catch (error: any) {
@@ -420,4 +425,3 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   return { successCount, errorCount, errors, addedSoldiers };
 }
-
