@@ -1,8 +1,9 @@
+
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, Archive, Shield } from "lucide-react";
+import { Users, Archive, Shield, Building } from "lucide-react"; // Added Building for divisions
 import { cn } from "@/lib/utils";
 import type { HTMLAttributes } from "react";
 
@@ -15,10 +16,16 @@ export function SidebarNav({ className, isMobile = false, ...props }: SidebarNav
 
   const routes = [
     {
+      href: "/divisions",
+      label: "פלוגות",
+      icon: Building,
+      active: pathname === "/divisions" || pathname.startsWith("/divisions"),
+    },
+    {
       href: "/soldiers",
-      label: "חיילים",
+      label: "כל החיילים",
       icon: Users,
-      active: pathname === "/soldiers" || pathname.startsWith("/soldiers"),
+      active: pathname === "/soldiers" || pathname.startsWith("/soldiers/"), // Ensure active for soldier detail pages
     },
     {
       href: "/armory",

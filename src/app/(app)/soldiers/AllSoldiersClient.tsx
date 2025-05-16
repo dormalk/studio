@@ -1,19 +1,14 @@
 
 "use client";
-// This file is renamed to AllSoldiersClient.tsx and simplified.
-// The old SoldiersManagementClient.tsx content is effectively replaced by AllSoldiersClient.tsx.
-// If this file still exists, it should be deleted or its content replaced with AllSoldiersClient.tsx's content.
-// For the purpose of this multi-file change, I will provide the content of the *new* AllSoldiersClient.tsx here
-// assuming the file system operation is a rename or replace.
 
 import type { Soldier, Division, SoldierDocument } from "@/types";
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; // Added CardFooter
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Edit3, Upload, FileText, Download, Eye, RefreshCw } from "lucide-react"; // Added RefreshCw
+import { PlusCircle, Trash2, Edit3, Upload, FileText, Download, Eye, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,

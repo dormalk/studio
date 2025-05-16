@@ -1,13 +1,14 @@
+
 import { getSoldiers } from "@/actions/soldierActions";
-import { getDivisions } from "@/actions/divisionActions";
+import { getDivisions } from "@/actions/divisionActions"; // Still needed for the "Add/Edit Soldier" dialog
 import type { Soldier, Division } from "@/types";
-import { SoldiersManagementClient } from "./SoldiersManagementClient"; // Client component
+import { AllSoldiersClient } from "./AllSoldiersClient"; // Renamed/New client component
 
-export const dynamic = 'force-dynamic'; // Ensure data is fetched on each request
+export const dynamic = 'force-dynamic';
 
-export default async function SoldiersPage() {
+export default async function AllSoldiersPage() {
   const soldiersData = getSoldiers();
-  const divisionsData = getDivisions();
+  const divisionsData = getDivisions(); // For the dropdown in Add/Edit Soldier Dialog
 
   const [soldiers, divisions] = await Promise.all([soldiersData, divisionsData]);
 
@@ -22,7 +23,7 @@ export default async function SoldiersPage() {
   
   return (
     <div className="container mx-auto py-8">
-      <SoldiersManagementClient initialSoldiers={soldiersWithDivisionNames} initialDivisions={divisions} />
+      <AllSoldiersClient initialSoldiers={soldiersWithDivisionNames} initialDivisions={divisions} />
     </div>
   );
 }
