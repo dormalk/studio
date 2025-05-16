@@ -15,7 +15,8 @@ import {
   arrayUnion,
   Timestamp,
   query,
-  where
+  where,
+  writeBatch
 } from "firebase/firestore";
 import { 
   ref, 
@@ -44,7 +45,7 @@ export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'do
     };
     await setDoc(soldierDocRef, newSoldierData);
     revalidatePath("/soldiers");
-    return { ...newSoldierData }; // divisionName will be enriched on client or by getSoldiers
+    return { ...newSoldierData, divisionName: "לא משויך" }; // divisionName will be enriched on client or by getSoldiers
   } catch (error) {
     console.error("Error adding soldier: ", error);
     if (error instanceof Error) throw error;
@@ -117,10 +118,11 @@ export async function getSoldiersByDivisionId(divisionId: string): Promise<Soldi
     const querySnapshot = await getDocs(q);
     const soldiers = querySnapshot.docs.map(docSnap => {
       const data = docSnap.data();
+      // Enrich with divisionName if needed here, though for a single division context it's often redundant
       return { 
         id: docSnap.id, 
         ...data,
-        // Documents are part of soldier data, no need to enrich divisionName here as it's about one division
+        documents: data.documents?.map((doc: SoldierDocument) => ({ ...doc })) || [],
       } as Soldier;
     });
     return soldiers.sort((a, b) => a.name.localeCompare(b.name));
@@ -136,8 +138,8 @@ export async function transferSoldier(soldierId: string, newDivisionId: string):
     const soldierDoc = doc(db, "soldiers", soldierId);
     await updateDoc(soldierDoc, { divisionId: newDivisionId });
     revalidatePath("/soldiers");
-    revalidatePath(`/divisions/${newDivisionId}`);
-    revalidatePath("/divisions");
+    revalidatePath(`/divisions/${newDivisionId}`); // Revalidate the specific division page
+    revalidatePath("/divisions"); // Revalidate the main divisions page
   } catch (error) {
     console.error("Error transferring soldier: ", error);
     throw new Error("העברת חייל נכשלה.");
@@ -148,14 +150,20 @@ export async function transferSoldier(soldierId: string, newDivisionId: string):
 export async function updateSoldier(soldierId: string, updates: Partial<Omit<Soldier, 'id' | 'divisionName' | 'documents'>>): Promise<void> {
   try {
     const soldierDoc = doc(db, "soldiers", soldierId);
+    const oldSoldierData = (await getDoc(soldierDoc)).data();
+
+
     await updateDoc(soldierDoc, updates);
-    revalidatePath("/soldiers");
-    revalidatePath(`/soldiers/${soldierId}`);
-    if (updates.divisionId) {
-        revalidatePath(`/divisions/${updates.divisionId}`);
-        // Also revalidate old division if soldier moved, though harder to track here
+    revalidatePath("/soldiers"); // Revalidate all soldiers list
+    revalidatePath(`/soldiers/${soldierId}`); // Revalidate specific soldier detail page
+
+    if (updates.divisionId && oldSoldierData?.divisionId !== updates.divisionId) {
+        revalidatePath(`/divisions/${updates.divisionId}`); // Revalidate new division page
+        if (oldSoldierData?.divisionId) {
+            revalidatePath(`/divisions/${oldSoldierData.divisionId}`); // Revalidate old division page
+        }
     }
-    revalidatePath("/divisions");
+    revalidatePath("/divisions"); // Revalidate main divisions page due to potential count changes
   } catch (error) {
     console.error("Error updating soldier: ", error);
     throw new Error("עדכון פרטי חייל נכשל.");
@@ -186,19 +194,22 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
 
     // Unlink armory items
     const armoryItemsRef = collection(db, "armoryItems");
-    const q = query(armoryItemsRef, where("linkedSoldierId", "==", soldierId));
-    const armorySnapshot = await getDocs(q);
+    const qArmory = query(armoryItemsRef, where("linkedSoldierId", "==", soldierId));
+    const armorySnapshot = await getDocs(qArmory);
     const batch = writeBatch(db);
     armorySnapshot.forEach(itemDoc => {
-        batch.update(itemDoc.ref, { linkedSoldierId: null }); // or delete, depending on desired logic
+        batch.update(itemDoc.ref, { linkedSoldierId: null }); 
     });
     await batch.commit();
 
 
     await deleteDoc(soldierDocRef);
     revalidatePath("/soldiers");
-    revalidatePath("/divisions"); // Revalidate divisions as soldier counts might change
-    revalidatePath("/armory"); // Revalidate armory as items might be unlinked
+    if (soldierData.divisionId) {
+      revalidatePath(`/divisions/${soldierData.divisionId}`);
+    }
+    revalidatePath("/divisions"); 
+    revalidatePath("/armory"); 
   } catch (error) {
     console.error("Error deleting soldier: ", error);
     throw new Error("מחיקת חייל נכשלה.");
