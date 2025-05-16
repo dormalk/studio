@@ -83,56 +83,54 @@ export async function addArmoryItem(
   try {
     const isUnique = itemData.isUniqueItem;
 
-    // Server-side validation and sanitization
-    const sanitizedItemId = isUnique ? itemData.itemId : undefined;
-    const sanitizedLinkedSoldierId = isUnique ? (itemData.linkedSoldierId || undefined) : undefined;
-    const sanitizedTotalQuantity = !isUnique ? itemData.totalQuantity : undefined;
-
     const dataToSaveForFirestore: any = {
       itemTypeId: itemData.itemTypeId,
       isUniqueItem: isUnique,
-      imageUrl: itemData.imageUrl || null, // Store null if undefined or empty for consistency
+      imageUrl: itemData.imageUrl || null,
       createdAt: serverTimestamp(),
     };
 
     if (isUnique) {
-      if (!sanitizedItemId || String(sanitizedItemId).trim() === "") {
+      if (!itemData.itemId || String(itemData.itemId).trim() === "") {
         throw new Error("מספר סריאלי הינו שדה חובה עבור פריט ייחודי.");
       }
-      dataToSaveForFirestore.itemId = sanitizedItemId;
-      dataToSaveForFirestore.linkedSoldierId = sanitizedLinkedSoldierId ? sanitizedLinkedSoldierId : null;
-    } else { // Non-unique item
-      if (sanitizedTotalQuantity === undefined || sanitizedTotalQuantity === null || sanitizedTotalQuantity <= 0) {
+      dataToSaveForFirestore.itemId = String(itemData.itemId).trim();
+      dataToSaveForFirestore.linkedSoldierId = itemData.linkedSoldierId ? itemData.linkedSoldierId : null;
+    } else {
+      if (itemData.totalQuantity === undefined || itemData.totalQuantity === null || itemData.totalQuantity <= 0) {
         throw new Error("כמות במלאי חייבת להיות גדולה מאפס עבור פריט לא ייחודי.");
       }
-      dataToSaveForFirestore.totalQuantity = sanitizedTotalQuantity;
+      dataToSaveForFirestore.totalQuantity = itemData.totalQuantity;
       dataToSaveForFirestore.assignments = []; // Initialize assignments for non-unique items
     }
 
     const docRef = await addDoc(armoryCollection, dataToSaveForFirestore);
     revalidatePath("/armory");
-    if (isUnique && sanitizedLinkedSoldierId) {
-        revalidatePath(`/soldiers/${sanitizedLinkedSoldierId}`);
+    if (isUnique && dataToSaveForFirestore.linkedSoldierId) {
+        revalidatePath(`/soldiers/${dataToSaveForFirestore.linkedSoldierId}`);
     }
 
+    // Construct the object to return to the client
     const newArmoryItemToReturn: ArmoryItem = {
         id: docRef.id,
         itemTypeId: itemData.itemTypeId,
         isUniqueItem: isUnique,
-        imageUrl: itemData.imageUrl || undefined, // Return undefined if was null/empty
-        itemId: sanitizedItemId,
-        linkedSoldierId: sanitizedLinkedSoldierId,
-        totalQuantity: sanitizedTotalQuantity,
+        imageUrl: itemData.imageUrl || undefined,
+        // Conditionally include fields based on isUnique
+        itemId: isUnique ? dataToSaveForFirestore.itemId : undefined,
+        linkedSoldierId: isUnique ? dataToSaveForFirestore.linkedSoldierId : undefined,
+        totalQuantity: !isUnique ? dataToSaveForFirestore.totalQuantity : undefined,
         assignments: !isUnique ? [] : undefined,
-        itemTypeName: "", // Placeholder, client will enrich
-        linkedSoldierName: undefined, // Placeholder, client will enrich
-        linkedSoldierDivisionName: undefined, // Placeholder, client will enrich
+        // These will be enriched client-side or by getArmoryItems
+        itemTypeName: "", 
+        linkedSoldierName: undefined,
+        linkedSoldierDivisionName: undefined,
     };
     return newArmoryItemToReturn;
 
   } catch (error) {
     console.error("Error adding armory item: ", error);
-    if (error instanceof Error) { // Re-throw known errors or specific validation errors
+    if (error instanceof Error) {
         throw error;
     }
     throw new Error("הוספת פריט נשקייה נכשלה עקב שגיאה לא צפויה.");
@@ -170,10 +168,10 @@ export async function getArmoryItems(): Promise<ArmoryItem[]> {
             itemTypeId: data.itemTypeId || "unknown_type_id",
             itemTypeName: itemTypeInfo.name,
             isUniqueItem: isActuallyUnique,
-            imageUrl: data.imageUrl,
+            imageUrl: data.imageUrl, // Will be null if Firestore has null, or undefined if not present
             itemId: isActuallyUnique ? data.itemId : undefined,
             totalQuantity: !isActuallyUnique ? data.totalQuantity : undefined,
-            linkedSoldierId: isActuallyUnique ? data.linkedSoldierId : undefined,
+            linkedSoldierId: isActuallyUnique ? (data.linkedSoldierId === null ? null : data.linkedSoldierId || undefined) : undefined,
             assignments: !isActuallyUnique ? (data.assignments || []).map((asgn: any) => {
                 const soldierData = soldiersDataMap.get(asgn.soldierId);
                 let soldierDivisionName;
@@ -212,20 +210,18 @@ export async function getArmoryItems(): Promise<ArmoryItem[]> {
 
 export async function getArmoryItemsBySoldierId(soldierId: string): Promise<ArmoryItem[]> {
   try {
-    const allArmoryItems = await getArmoryItems(); // Leverages the enriched items
+    const allArmoryItems = await getArmoryItems(); 
 
     const soldierItems: ArmoryItem[] = [];
-    // Soldier details are already part of enriched allArmoryItems if linked
-    // We just need to filter them and add _currentSoldierAssignedQuantity for non-unique
-
+    
     for (const item of allArmoryItems) {
       if (item.isUniqueItem && item.linkedSoldierId === soldierId) {
-        soldierItems.push(item); // Item already enriched
+        soldierItems.push(item);
       } else if (!item.isUniqueItem && item.assignments) {
         const assignment = item.assignments.find(asgn => asgn.soldierId === soldierId);
         if (assignment) {
           soldierItems.push({
-            ...item, // Item already enriched
+            ...item, 
             _currentSoldierAssignedQuantity: assignment.quantity,
           });
         }
@@ -249,16 +245,15 @@ export async function updateArmoryItem(
     if (!itemSnapshot.exists()) {
         throw new Error("פריט לא נמצא.");
     }
-    const oldData = itemSnapshot.data() as ArmoryItem; // Assuming ArmoryItem structure is correct in DB
+    const oldData = itemSnapshot.data() as ArmoryItem; 
     const oldLinkedSoldierId = oldData.linkedSoldierId;
 
     const dataToUpdate: any = { ...updates }; 
 
-    const newIsUniqueCandidate = updates.isUniqueItem;
-
-    if (newIsUniqueCandidate !== undefined) {
-         dataToUpdate.isUniqueItem = newIsUniqueCandidate;
-    } else if (updates.itemTypeId) { 
+    // Determine the 'isUniqueItem' status for the update
+    if (updates.isUniqueItem !== undefined) {
+         dataToUpdate.isUniqueItem = updates.isUniqueItem;
+    } else if (updates.itemTypeId && updates.itemTypeId !== oldData.itemTypeId) { 
         const itemTypeDoc = await getDoc(doc(db, "armoryItemTypes", updates.itemTypeId));
         if (itemTypeDoc.exists()) {
             dataToUpdate.isUniqueItem = itemTypeDoc.data()!.isUnique;
@@ -269,37 +264,38 @@ export async function updateArmoryItem(
         dataToUpdate.isUniqueItem = oldData.isUniqueItem;
     }
 
+    // Handle fields based on whether the item is unique or non-unique
     if (dataToUpdate.isUniqueItem === true) {
-      // Ensure itemId is present if switching to unique or updating a unique item
-      if (updates.itemId === undefined && oldData.isUniqueItem === false) { // Switched to unique, itemId must be provided
+      if (updates.itemId === undefined && oldData.isUniqueItem === false) {
           throw new Error("מספר סריאלי הינו חובה בעת שינוי לסוג פריט ייחודי.");
       }
-      dataToUpdate.itemId = updates.itemId !== undefined ? updates.itemId : oldData.itemId;
+      dataToUpdate.itemId = updates.itemId !== undefined ? String(updates.itemId).trim() : oldData.itemId;
       if (!dataToUpdate.itemId || String(dataToUpdate.itemId).trim() === "") {
           throw new Error("מספר סריאלי הינו חובה עבור פריט ייחודי.");
       }
 
-
+      // Explicitly handle linkedSoldierId:
+      // If linkedSoldierId is part of 'updates', use its value (undefined/null becomes null).
+      // If not in 'updates' (e.g., only itemId changed), retain old value.
       if (updates.hasOwnProperty('linkedSoldierId')) {
-        dataToUpdate.linkedSoldierId = updates.linkedSoldierId === undefined || updates.linkedSoldierId === null ? null : updates.linkedSoldierId;
+        dataToUpdate.linkedSoldierId = (updates.linkedSoldierId === undefined || updates.linkedSoldierId === null) ? null : updates.linkedSoldierId;
       } else {
-        dataToUpdate.linkedSoldierId = oldData.linkedSoldierId !== undefined ? oldData.linkedSoldierId : null;
+        // If not in updates, retain the old value or default to null if it was undefined
+        dataToUpdate.linkedSoldierId = oldData.linkedSoldierId === undefined ? null : oldData.linkedSoldierId;
       }
-
+      
       dataToUpdate.totalQuantity = FieldValue.delete();
       dataToUpdate.assignments = FieldValue.delete();
 
     } else if (dataToUpdate.isUniqueItem === false) {
-      // Ensure totalQuantity is present if switching to non-unique or updating a non-unique item
-      if (updates.totalQuantity === undefined && oldData.isUniqueItem === true) { // Switched to non-unique, quantity must be provided
+      if (updates.totalQuantity === undefined && oldData.isUniqueItem === true) {
           throw new Error("כמות במלאי הינה חובה בעת שינוי לסוג פריט לא ייחודי.");
       }
       dataToUpdate.totalQuantity = updates.totalQuantity !== undefined ? updates.totalQuantity : oldData.totalQuantity;
       if (dataToUpdate.totalQuantity === undefined || dataToUpdate.totalQuantity === null || dataToUpdate.totalQuantity <=0) {
           throw new Error("כמות במלאי חייבת להיות גדולה מאפס עבור פריט לא ייחודי.");
       }
-
-
+      
       dataToUpdate.itemId = FieldValue.delete();
       dataToUpdate.linkedSoldierId = FieldValue.delete(); 
 
@@ -310,31 +306,39 @@ export async function updateArmoryItem(
       }
     }
     
-    // Remove undefined fields from dataToUpdate to prevent Firestore errors for 'undefined' values
+    // Clean up undefined fields from dataToUpdate, except for specific ones that can be null
     Object.keys(dataToUpdate).forEach(key => {
-        if (dataToUpdate[key] === undefined && key !== 'linkedSoldierId' && key !== 'imageUrl') { // Allow undefined for these if explicitly set to unlink/remove
+        if (dataToUpdate[key] === undefined && key !== 'linkedSoldierId' && key !== 'imageUrl') {
             delete dataToUpdate[key];
         }
     });
-    if (dataToUpdate.imageUrl === undefined) dataToUpdate.imageUrl = null; // Ensure imageUrl is null if removed
-
+    if (dataToUpdate.imageUrl === undefined) dataToUpdate.imageUrl = null;
+    // Final safeguard: if linkedSoldierId is still undefined here (should have been converted to null for unique items), set it to null.
+    // For non-unique items, it should have been deleted by FieldValue.delete().
+    if (dataToUpdate.isUniqueItem === true && dataToUpdate.linkedSoldierId === undefined) {
+        dataToUpdate.linkedSoldierId = null;
+    }
 
     await updateDoc(itemDocRef, dataToUpdate);
     revalidatePath("/armory");
 
-    const newLinkedSoldierId = dataToUpdate.isUniqueItem ? dataToUpdate.linkedSoldierId : undefined;
-    if (oldLinkedSoldierId !== newLinkedSoldierId) {
-        if (oldLinkedSoldierId) revalidatePath(`/soldiers/${oldLinkedSoldierId}`);
-        if (newLinkedSoldierId) revalidatePath(`/soldiers/${newLinkedSoldierId}`);
-    }
+    const newLinkedSoldierIdAfterUpdate = dataToUpdate.isUniqueItem ? dataToUpdate.linkedSoldierId : undefined;
 
-    if (dataToUpdate.isUniqueItem === false && (updates.assignments || oldData.isUniqueItem === true)) { // If assignments changed or switched to non-unique
-        revalidatePath("/soldiers"); 
-        // More targeted: loop through old and new assignments to revalidate specific soldiers
+    // Revalidate old soldier path if they were unlinked or item changed
+    if (oldLinkedSoldierId && oldLinkedSoldierId !== newLinkedSoldierIdAfterUpdate) {
+        revalidatePath(`/soldiers/${oldLinkedSoldierId}`);
+    }
+    // Revalidate new soldier path if they were linked
+    if (newLinkedSoldierIdAfterUpdate && newLinkedSoldierIdAfterUpdate !== oldLinkedSoldierId) {
+        revalidatePath(`/soldiers/${newLinkedSoldierIdAfterUpdate}`);
+    }
+    // If it was a non-unique item and assignments might have changed (e.g. item type changed)
+    if (dataToUpdate.isUniqueItem === false) {
         const affectedSoldierIds = new Set<string>();
         (oldData.assignments || []).forEach((asgn: ArmoryItemAssignment) => affectedSoldierIds.add(asgn.soldierId));
         (dataToUpdate.assignments || []).forEach((asgn: ArmoryItemAssignment) => affectedSoldierIds.add(asgn.soldierId));
         affectedSoldierIds.forEach(soldierId => revalidatePath(`/soldiers/${soldierId}`));
+        if (affectedSoldierIds.size > 0) revalidatePath("/soldiers"); // General revalidate for soldier list
     }
 
   } catch (error) {
@@ -429,19 +433,18 @@ export async function manageSoldierAssignmentToNonUniqueItem(
       const newAssignment: ArmoryItemAssignment = {
         soldierId,
         quantity: newQuantity,
-        soldierName: soldierData.name, // Store name for easier display
-        soldierDivisionName: soldierDivisionName, // Store division name for easier display
+        soldierName: soldierData.name, 
+        soldierDivisionName: soldierDivisionName, 
       };
       if (existingAssignmentIndex > -1) {
         currentAssignments[existingAssignmentIndex] = newAssignment;
       } else {
         currentAssignments.push(newAssignment);
       }
-    } else { // newQuantity is 0 or less (invalid, but we treat as 0 for unassignment)
+    } else { 
       if (existingAssignmentIndex > -1) {
         currentAssignments.splice(existingAssignmentIndex, 1);
       }
-      // If quantity is 0 and no existing assignment, do nothing.
     }
 
     await updateDoc(itemDocRef, { assignments: currentAssignments });
@@ -451,7 +454,10 @@ export async function manageSoldierAssignmentToNonUniqueItem(
 
   } catch (error) {
     console.error("Error managing soldier assignment: ", error);
-    if (error instanceof Error) throw error; // Re-throw specific errors
+    if (error instanceof Error) throw error;
     throw new Error("פעולת הקצאת/עדכון כמות נכשלה.");
   }
 }
+
+
+    
