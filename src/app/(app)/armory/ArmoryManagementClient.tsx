@@ -325,7 +325,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
         <h1 className="text-3xl font-bold">ניהול נשקייה</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
           <Button variant="outline" onClick={handleExportToExcel} disabled={filteredArmoryItems.length === 0}>
             <FileSpreadsheet className="ms-2 h-4 w-4" /> ייצא ל-Excel
           </Button>
