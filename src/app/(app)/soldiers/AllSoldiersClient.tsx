@@ -35,9 +35,9 @@ import {
   updateSoldier,
   uploadSoldierDocument,
   deleteSoldierDocument,
-  importSoldiers, // New import
-  type SoldierImportData, // New import
-  type ImportResult // New import
+  importSoldiers,
+  type SoldierImportData,
+  type ImportResult
 } from "@/actions/soldierActions";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -54,7 +54,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { Timestamp } from "firebase/firestore";
-import * as XLSX from 'xlsx'; // For Excel parsing
+import * as XLSX from 'xlsx';
 
 const soldierSchema = z.object({
   id: z.string().min(1, "ת.ז. הינו שדה חובה").regex(/^\d+$/, "ת.ז. חייבת להכיל מספרים בלבד"),
@@ -80,7 +80,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // States for Excel Import Dialog
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -245,11 +244,11 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-          header: ["name", "id", "divisionName"], // Assumes columns are: שם החייל, מספר אישי, שם הפלוגה
-          range: 1 // Skip header row
+          header: ["name", "id", "divisionName"], 
+          range: 1 
         }) as SoldierImportData[];
         
-        const soldiersToImport = jsonData.filter(row => row.id && row.name && row.divisionName); // Basic validation
+        const soldiersToImport = jsonData.filter(row => row.id && row.name && row.divisionName);
 
         if(soldiersToImport.length === 0){
             toast({ variant: "destructive", title: "שגיאה", description: "לא נמצאו נתונים תקינים לייבוא בקובץ. ודא שהעמודות הן: שם החייל, מספר אישי, שם הפלוגה (עם כותרות בשורה הראשונה)." });
@@ -260,24 +259,38 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const result: ImportResult = await importSoldiers(soldiersToImport);
 
         if (result.successCount > 0) {
-          // Add newly imported soldiers to the local state
           setSoldiers(prev => [...prev, ...result.addedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
           toast({
-            title: "ייבוא הושלם חלקית או במלואו",
+            title: "ייבוא הושלם",
             description: `${result.successCount} חיילים נוספו בהצלחה.`,
           });
         }
+
         if (result.errorCount > 0) {
-          let errorDetails = result.errors.map(err => `שורה ${err.rowNumber} (ת.ז: ${err.soldierId || 'לא צוין'}): ${err.reason}`).join('\n');
-          if (errorDetails.length > 300) errorDetails = errorDetails.substring(0,300) + "..."; // Truncate for toast
+          console.error("Import errors:", result.errors); // Log all errors to console
+          let errorDescription;
+          if (result.errorCount === 1 && result.errors[0]) {
+            const err = result.errors[0];
+            errorDescription = `שגיאה בשורה ${err.rowNumber} (ת.ז: ${err.soldierId || 'לא צוין'}): ${err.reason}`;
+          } else {
+            const firstError = result.errors[0];
+            errorDescription = (
+              <>
+                {`${result.errorCount} שגיאות בייבוא. `}
+                {firstError ? `שגיאה ראשונה (שורה ${firstError.rowNumber}): ${firstError.reason}. ` : ''}
+                <br />
+                {'נא לבדוק את הקונסולה לפרטים נוספים.'}
+              </>
+            );
+          }
           toast({
             variant: "destructive",
             title: `שגיאות בייבוא (${result.errorCount})`,
-            description: <pre className="whitespace-pre-wrap text-xs">{errorDetails}</pre>,
-            duration: 15000
+            description: errorDescription,
+            duration: result.errorCount === 1 ? 10000 : 15000 
           });
-          console.error("Import errors:", result.errors);
         }
+        
         if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length > 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ." });
         }
@@ -573,3 +586,4 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
+
