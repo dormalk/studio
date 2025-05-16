@@ -26,6 +26,7 @@ import {
 } from "firebase/storage";
 import { revalidatePath } from "next/cache";
 import { v4 as uuidv4 } from 'uuid';
+import { getDivisions } from "./divisionActions"; // For import
 
 const soldiersCollection = collection(db, "soldiers");
 const divisionsCollection = collection(db, "divisions");
@@ -299,4 +300,76 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
   }
 }
 
+// Import soldiers from Excel
+export interface SoldierImportData {
+  name: string;
+  id: string; // Soldier's personal ID
+  divisionName: string;
+}
+
+export interface ImportResult {
+  successCount: number;
+  errorCount: number;
+  errors: Array<{ soldierName?: string; soldierId?: string; rowNumber: number; reason: string }>;
+  addedSoldiers: Soldier[];
+}
+
+export async function importSoldiers(soldiersData: SoldierImportData[]): Promise<ImportResult> {
+  const allDivisions = await getDivisions();
+  const divisionMapByName = new Map(allDivisions.map(div => [div.name.toLowerCase(), div.id]));
+
+  let successCount = 0;
+  let errorCount = 0;
+  const errors: Array<{ soldierName?: string; soldierId?: string; rowNumber: number; reason: string }> = [];
+  const addedSoldiers: Soldier[] = [];
+
+  for (let i = 0; i < soldiersData.length; i++) {
+    const soldierRow = soldiersData[i];
+    const rowNumber = i + 2; // Assuming Excel row numbers start from 1 and header is row 1
+
+    if (!soldierRow.id || !soldierRow.name || !soldierRow.divisionName) {
+      errorCount++;
+      errors.push({ 
+        soldierId: soldierRow.id || "N/A", 
+        soldierName: soldierRow.name || "N/A", 
+        rowNumber, 
+        reason: "שדות חסרים (מספר אישי, שם או שם פלוגה)." 
+      });
+      continue;
+    }
     
+    const soldierId = String(soldierRow.id).trim();
+    const soldierName = String(soldierRow.name).trim();
+    const divisionName = String(soldierRow.divisionName).trim();
+
+    const divisionId = divisionMapByName.get(divisionName.toLowerCase());
+
+    if (!divisionId) {
+      errorCount++;
+      errors.push({ soldierName, soldierId, rowNumber, reason: `פלוגה בשם '${divisionName}' לא נמצאה.` });
+      continue;
+    }
+
+    try {
+      const newSoldier = await addSoldier({
+        id: soldierId,
+        name: soldierName,
+        divisionId: divisionId,
+      });
+      // Enrich with division name for immediate use in UI if needed
+      const fullNewSoldier = { ...newSoldier, divisionName, documents: [] };
+      addedSoldiers.push(fullNewSoldier);
+      successCount++;
+    } catch (error: any) {
+      errorCount++;
+      errors.push({ soldierName, soldierId, rowNumber, reason: error.message || "שגיאה לא ידועה בהוספת חייל." });
+    }
+  }
+
+  if (successCount > 0) {
+    revalidatePath("/soldiers");
+    revalidatePath("/divisions"); // In case soldier counts changed for divisions
+  }
+
+  return { successCount, errorCount, errors, addedSoldiers };
+}

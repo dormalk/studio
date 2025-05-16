@@ -5,10 +5,10 @@ import type { Soldier, Division, SoldierDocument } from "@/types";
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; // Added CardFooter
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Edit3, Upload, FileText, Download, Eye, RefreshCw } from "lucide-react";
+import { PlusCircle, Trash2, Edit3, Upload, FileText, Download, Eye, RefreshCw, FileUp } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +34,10 @@ import {
   deleteSoldier, 
   updateSoldier,
   uploadSoldierDocument,
-  deleteSoldierDocument
+  deleteSoldierDocument,
+  importSoldiers, // New import
+  type SoldierImportData, // New import
+  type ImportResult // New import
 } from "@/actions/soldierActions";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -51,6 +54,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { Timestamp } from "firebase/firestore";
+import * as XLSX from 'xlsx'; // For Excel parsing
 
 const soldierSchema = z.object({
   id: z.string().min(1, "ת.ז. הינו שדה חובה").regex(/^\d+$/, "ת.ז. חייבת להכיל מספרים בלבד"),
@@ -75,6 +79,13 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // States for Excel Import Dialog
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
+
 
   const soldierForm = useForm<z.infer<typeof soldierSchema>>({
     resolver: zodResolver(soldierSchema),
@@ -157,8 +168,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   };
   
   const openAddNewSoldierDialog = () => {
-    setEditingSoldier(null); // Make sure we are in "add" mode
-    soldierForm.reset({ id: "", name: "", divisionId: divisions[0]?.id || "unassigned"}); // Reset and default division if possible
+    setEditingSoldier(null); 
+    soldierForm.reset({ id: "", name: "", divisionId: divisions[0]?.id || "unassigned"}); 
     setIsSoldierDialogOpen(true);
   };
 
@@ -211,6 +222,82 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     }
   };
 
+  const handleImportFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setImportFile(event.target.files?.[0] || null);
+  };
+
+  const handleProcessImport = async () => {
+    if (!importFile) {
+      toast({ variant: "destructive", title: "שגיאה", description: "לא נבחר קובץ לייבוא." });
+      return;
+    }
+    setIsImporting(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const data = e.target?.result;
+        if (!data) {
+          toast({ variant: "destructive", title: "שגיאה", description: "קריאת הקובץ נכשלה." });
+          setIsImporting(false);
+          return;
+        }
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+          header: ["name", "id", "divisionName"], // Assumes columns are: שם החייל, מספר אישי, שם הפלוגה
+          range: 1 // Skip header row
+        }) as SoldierImportData[];
+        
+        const soldiersToImport = jsonData.filter(row => row.id && row.name && row.divisionName); // Basic validation
+
+        if(soldiersToImport.length === 0){
+            toast({ variant: "destructive", title: "שגיאה", description: "לא נמצאו נתונים תקינים לייבוא בקובץ. ודא שהעמודות הן: שם החייל, מספר אישי, שם הפלוגה (עם כותרות בשורה הראשונה)." });
+            setIsImporting(false);
+            return;
+        }
+
+        const result: ImportResult = await importSoldiers(soldiersToImport);
+
+        if (result.successCount > 0) {
+          // Add newly imported soldiers to the local state
+          setSoldiers(prev => [...prev, ...result.addedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
+          toast({
+            title: "ייבוא הושלם חלקית או במלואו",
+            description: `${result.successCount} חיילים נוספו בהצלחה.`,
+          });
+        }
+        if (result.errorCount > 0) {
+          let errorDetails = result.errors.map(err => `שורה ${err.rowNumber} (ת.ז: ${err.soldierId || 'לא צוין'}): ${err.reason}`).join('\n');
+          if (errorDetails.length > 300) errorDetails = errorDetails.substring(0,300) + "..."; // Truncate for toast
+          toast({
+            variant: "destructive",
+            title: `שגיאות בייבוא (${result.errorCount})`,
+            description: <pre className="whitespace-pre-wrap text-xs">{errorDetails}</pre>,
+            duration: 15000
+          });
+          console.error("Import errors:", result.errors);
+        }
+        if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length > 0) {
+            toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ." });
+        }
+
+        setImportFile(null);
+        if (importFileInputRef.current) importFileInputRef.current.value = "";
+        setIsImportDialogOpen(false);
+      };
+      reader.onerror = () => {
+        toast({ variant: "destructive", title: "שגיאה", description: "קריאת הקובץ נכשלה." });
+        setIsImporting(false);
+      }
+      reader.readAsArrayBuffer(importFile);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "שגיאת ייבוא", description: error.message || "תהליך הייבוא נכשל." });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const formatFileSize = (bytes: number, decimals = 2) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -230,7 +317,50 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
         <h1 className="text-3xl font-bold">כל החיילים</h1>
-        <Button onClick={openAddNewSoldierDialog}><PlusCircle className="ms-2 h-4 w-4" /> הוסף חייל</Button>
+        <div className="flex gap-2">
+            <Dialog open={isImportDialogOpen} onOpenChange={(isOpen) => {
+                setIsImportDialogOpen(isOpen);
+                if (!isOpen) {
+                    setImportFile(null);
+                    if (importFileInputRef.current) importFileInputRef.current.value = "";
+                }
+            }}>
+                <DialogTrigger asChild>
+                    <Button variant="outline"><FileUp className="ms-2 h-4 w-4" /> ייבא חיילים מ-Excel</Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>ייבוא חיילים מקובץ Excel</DialogTitle>
+                        <DialogDescription>
+                            בחר קובץ Excel (.xlsx, .xls) לייבוא.
+                            הקובץ צריך להכיל את העמודות הבאות (עם כותרות בשורה הראשונה): 
+                            שם החייל, מספר אישי, שם הפלוגה.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div>
+                            <Label htmlFor="importFile">בחר קובץ</Label>
+                            <Input 
+                                id="importFile" 
+                                type="file" 
+                                accept=".xlsx, .xls"
+                                ref={importFileInputRef}
+                                onChange={handleImportFileChange} 
+                            />
+                        </div>
+                        {importFile && <p className="text-sm text-muted-foreground">קובץ נבחר: {importFile.name}</p>}
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
+                        <Button type="button" onClick={handleProcessImport} disabled={!importFile || isImporting}>
+                            {isImporting ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
+                            {isImporting ? "מעבד..." : "התחל ייבוא"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Button onClick={openAddNewSoldierDialog}><PlusCircle className="ms-2 h-4 w-4" /> הוסף חייל</Button>
+        </div>
       </div>
         <Dialog 
           open={isSoldierDialogOpen} 
@@ -244,7 +374,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             }
           }}
         >
-          {/* DialogTrigger is now handled by the button above for adding, and Edit3 button for editing */}
           <DialogContent className="sm:max-w-[625px]">
             <DialogHeader>
               <DialogTitle>{editingSoldier ? "ערוך פרטי חייל" : "הוסף חייל חדש"}</DialogTitle>
@@ -444,4 +573,3 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
-
