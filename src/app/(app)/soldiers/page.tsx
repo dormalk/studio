@@ -12,14 +12,14 @@ export default async function AllSoldiersPage() {
 
   const [soldiers, divisions] = await Promise.all([soldiersData, divisionsData]);
 
-  // Enrich soldiers with division names for easier display
+  // Enrich soldiers with division names for easier display and sort them
   const soldiersWithDivisionNames = soldiers.map(soldier => {
     const division = divisions.find(d => d.id === soldier.divisionId);
     return {
       ...soldier,
       divisionName: division ? division.name : "לא משויך"
     };
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name)); // Ensure consistent sorting
   
   return (
     <div className="container mx-auto py-8">
@@ -27,3 +27,4 @@ export default async function AllSoldiersPage() {
     </div>
   );
 }
+
