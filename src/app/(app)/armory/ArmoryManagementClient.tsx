@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+// import { Textarea } from "@/components/ui/textarea"; // Removed as description is removed
 import { PlusCircle, Trash2, Edit3, Camera, RefreshCw, ListChecks, User, PackageSearch } from "lucide-react";
 import {
   Dialog,
@@ -55,12 +55,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 
 const armoryItemSchema = z.object({
-  name: z.string().min(1, "שם פריט הינו שדה חובה"),
   itemTypeId: z.string().min(1, "יש לבחור סוג פריט"),
-  itemId: z.string().min(1, "מספר סריאלי הינו שדה חובה"), // Now mandatory
-  description: z.string().optional(),
+  itemId: z.string().min(1, "מספר סריאלי הינו שדה חובה"),
   photoDataUri: z.string().optional(),
-  linkedSoldierId: z.string().optional(), // Can be our placeholder or an actual ID or empty
+  linkedSoldierId: z.string().optional(),
 });
 
 const armoryItemTypeSchema = z.object({
@@ -98,7 +96,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
   const itemForm = useForm<ArmoryItemFormData>({
     resolver: zodResolver(armoryItemSchema),
-    defaultValues: { name: "", itemTypeId: "", itemId: "", description: "", linkedSoldierId: "" },
+    defaultValues: { itemTypeId: "", itemId: "", linkedSoldierId: "" },
   });
 
   const itemTypeForm = useForm<ArmoryItemTypeFormData>({
@@ -121,15 +119,13 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   useEffect(() => {
     if (editingItem) {
       itemForm.reset({
-        name: editingItem.name,
         itemTypeId: editingItem.itemTypeId,
         itemId: editingItem.itemId,
-        description: editingItem.description || "",
-        linkedSoldierId: editingItem.linkedSoldierId || "", // if undefined/empty, Select shows placeholder
+        linkedSoldierId: editingItem.linkedSoldierId || "",
       });
       setScannedImagePreview(editingItem.imageUrl || null);
     } else {
-      itemForm.reset({ name: "", itemTypeId: "", itemId: "", description: "", linkedSoldierId: "" });
+      itemForm.reset({ itemTypeId: "", itemId: "", linkedSoldierId: "" });
       setScannedImagePreview(null);
     }
   }, [editingItem, itemForm, isItemDialogOpen]);
@@ -145,8 +141,8 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
   const filteredArmoryItems = useMemo(() => {
     return armoryItems.filter(item =>
-      (item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (item.itemId && item.itemId.toLowerCase().includes(searchTerm.toLowerCase()))) &&
+      (item.itemId && item.itemId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.itemTypeName && item.itemTypeName.toLowerCase().includes(searchTerm.toLowerCase()))) &&
       (filterItemTypeId === "all" || item.itemTypeId === filterItemTypeId)
     );
   }, [armoryItems, searchTerm, filterItemTypeId]);
@@ -191,18 +187,14 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       }
 
       const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'imageUrl' | 'createdAt'> & { imageUrl?: string } = {
-        name: values.name,
         itemTypeId: values.itemTypeId,
         itemId: values.itemId,
-        description: values.description,
         linkedSoldierId: soldierIdToSave,
       };
       
-      if (values.photoDataUri && !editingItem) { // Only use photoDataUri for new items if provided for AI scan
-         // Potentially, upload scannedImagePreview if it's from photoDataUri and a new item without existing imageUrl
+      if (values.photoDataUri && !editingItem) { 
          // For now, assuming imageUrl is either pre-existing or not set by scan for simplicity.
-         // If an image was scanned and successfully identified, its URL isn't automatically handled for saving yet.
-         // This part might need enhancement if image persistence from scan is required beyond just ID/type.
+         // If an image was scanned, its URL isn't automatically handled for saving yet.
       } else if (editingItem?.imageUrl) {
         dataToSave.imageUrl = editingItem.imageUrl;
       }
@@ -219,8 +211,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         toast({ title: "הצלחה", description: "פרטי הפריט עודכנו." });
       } else {
         const newItemServer = await addArmoryItem(dataToSave);
-         // newItemServer won't have imageUrl from dataToSave unless explicitly passed and handled by addArmoryItem
-        updatedOrNewItem = { ...newItemServer, itemTypeName, linkedSoldierName, imageUrl: dataToSave.imageUrl }; // Ensure imageUrl is included
+        updatedOrNewItem = { ...newItemServer, itemTypeName, linkedSoldierName, imageUrl: dataToSave.imageUrl }; 
         setArmoryItems(prev => [...prev, updatedOrNewItem]);
         toast({ title: "הצלחה", description: "פריט נוסף בהצלחה." });
       }
@@ -267,7 +258,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       }
       itemTypeForm.reset();
       setEditingItemType(null);
-      setIsItemTypeDialogOpen(false); // Close dialog after successful operation
+      setIsItemTypeDialogOpen(false); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "פעולה נכשלה." });
     }
@@ -286,7 +277,6 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   const openEditItemTypeDialog = (itemType: ArmoryItemType) => {
     setEditingItemType(itemType);
     itemTypeForm.reset({ name: itemType.name });
-    // Ensure dialog is open if this is called, though usually triggered from within it
     setIsItemTypeDialogOpen(true); 
   };
 
@@ -398,11 +388,6 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
               <form onSubmit={itemForm.handleSubmit(handleAddOrUpdateItem)} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="itemName">שם הפריט</Label>
-                    <Input id="itemName" {...itemForm.register("name")} />
-                    {itemForm.formState.errors.name && <p className="text-destructive text-sm">{itemForm.formState.errors.name.message}</p>}
-                  </div>
-                  <div>
                     <Label htmlFor="itemTypeIdSelect">סוג הפריט</Label>
                     <Controller
                       name="itemTypeId"
@@ -422,14 +407,14 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                     />
                     {itemForm.formState.errors.itemTypeId && <p className="text-destructive text-sm">{itemForm.formState.errors.itemTypeId.message}</p>}
                   </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="itemId">מספר סריאלי</Label>
                     <Input id="itemId" {...itemForm.register("itemId")} />
                     {itemForm.formState.errors.itemId && <p className="text-destructive text-sm">{itemForm.formState.errors.itemId.message}</p>}
                   </div>
-                  <div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                   <div>
                     <Label htmlFor="linkedSoldierIdSelect">שייך לחייל</Label>
                     <Controller
                       name="linkedSoldierId"
@@ -449,26 +434,22 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                       )}
                     />
                   </div>
-                </div>
-                <div>
-                  <Label htmlFor="itemDescription">תיאור</Label>
-                  <Textarea id="itemDescription" {...itemForm.register("description")} />
-                </div>
-                
-                <div>
-                  <Label htmlFor="itemImage">תמונת פריט (לסריקה)</Label>
-                  <div className="flex items-center gap-2">
-                    <Input id="itemImage" type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="flex-grow"/>
-                    <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isScanning}>
-                      {isScanning ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                  {scannedImagePreview && (
-                    <div className="mt-2 border rounded-md p-2 flex justify-center items-center h-32 overflow-hidden">
-                      <Image src={scannedImagePreview} alt="תצוגה מקדימה" width={100} height={100} className="object-contain max-h-full" data-ai-hint="equipment military" />
+                  <div>
+                    <Label htmlFor="itemImage">תמונת פריט (לסריקה)</Label>
+                    <div className="flex items-center gap-2">
+                      <Input id="itemImage" type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="flex-grow"/>
+                      <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isScanning}>
+                        {isScanning ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                      </Button>
                     </div>
-                  )}
+                  </div>
                 </div>
+                                
+                {scannedImagePreview && (
+                  <div className="mt-2 border rounded-md p-2 flex justify-center items-center h-32 overflow-hidden">
+                    <Image src={scannedImagePreview} alt="תצוגה מקדימה" width={100} height={100} className="object-contain max-h-full" data-ai-hint="equipment military" />
+                  </div>
+                )}
 
                 <DialogFooter>
                   <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
@@ -485,7 +466,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       <div className="flex flex-col sm:flex-row gap-4 items-center">
         <Input
           type="search"
-          placeholder="חפש פריט לפי שם או מספר סריאלי..."
+          placeholder="חפש פריט לפי מס' סריאלי או סוג..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="max-w-xs"
@@ -512,23 +493,21 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
               <CardHeader>
                 {item.imageUrl ? (
                   <div className="relative h-40 w-full mb-2 rounded-md overflow-hidden">
-                    <Image src={item.imageUrl} alt={item.name} layout="fill" objectFit="cover" data-ai-hint="equipment military" />
+                    <Image src={item.imageUrl} alt={item.itemTypeName || "Armory Item"} layout="fill" objectFit="cover" data-ai-hint="equipment military" />
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-40 w-full mb-2 rounded-md bg-muted">
                     <PackageSearch className="w-16 h-16 text-muted-foreground" />
                   </div>
                 )}
-                <CardTitle>{item.name}</CardTitle>
-                <CardDescription>סוג: {item.itemTypeName || "לא צוין"}</CardDescription>
+                <CardTitle>{item.itemTypeName || "פריט לא מסווג"}</CardTitle>
+                <CardDescription>מספר סריאלי: <span className="font-semibold">{item.itemId}</span></CardDescription>
               </CardHeader>
               <CardContent className="flex-grow space-y-1">
-                <p className="text-sm">מספר סריאלי: <span className="font-semibold">{item.itemId}</span></p>
                 {item.linkedSoldierName && (
                   <p className="text-sm flex items-center"><User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל: <span className="font-semibold ms-1">{item.linkedSoldierName}</span></p>
                 )}
                 {!item.linkedSoldierId && <p className="text-sm text-muted-foreground flex items-center"><User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" />לא משויך לחייל</p>}
-                {item.description && <p className="text-sm text-muted-foreground mt-1">{item.description}</p>}
               </CardContent>
               <CardFooter className="flex justify-end gap-2">
                  <Button variant="ghost" size="icon" onClick={() => openEditItemDialog(item)}>
@@ -542,7 +521,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                         <AlertDialogHeader>
                         <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
                         <AlertDialogDescription>
-                            האם אתה בטוח שברצונך למחוק את הפריט "{item.name}" (סריאלי: {item.itemId})?
+                            האם אתה בטוח שברצונך למחוק את הפריט מסוג "{item.itemTypeName || 'לא ידוע'}" (סריאלי: {item.itemId})?
                         </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>

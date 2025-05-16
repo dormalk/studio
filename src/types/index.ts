@@ -32,12 +32,11 @@ export interface ArmoryItemType {
 export interface ArmoryItem {
   id: string; // Firestore document ID
   itemId: string; // Scanned/manual ID, e.g., serial number - NOW MANDATORY
-  name: string;
   itemTypeId: string; // Foreign key to ArmoryItemType
   itemTypeName?: string; // Denormalized for display
-  description?: string;
   imageUrl?: string; // URL of the scanned image, if stored
   photoDataUri?: string; // Temporary, for AI scanning
   linkedSoldierId?: string; // Optional: ID of the soldier this item is linked to
   linkedSoldierName?: string; // Optional: Denormalized for display
 }
+

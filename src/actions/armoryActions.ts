@@ -102,10 +102,8 @@ export async function getArmoryItems(): Promise<Omit<ArmoryItem, 'itemTypeName' 
         const data = docSnapshot.data();
         return { 
             id: docSnapshot.id, 
-            name: data.name || "שם לא ידוע",
             itemTypeId: data.itemTypeId || "unknown_type_id", 
             itemId: data.itemId || "N/A", // Serial number, should be present
-            description: data.description,
             imageUrl: data.imageUrl,
             linkedSoldierId: data.linkedSoldierId,
             // photoDataUri is client-side only, createdAt is a Timestamp
@@ -152,3 +150,4 @@ export async function scanArmoryItemImage(photoDataUri: string): Promise<{ itemT
     throw new Error("סריקת תמונת פריט נכשלה.");
   }
 }
+
