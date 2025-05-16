@@ -77,6 +77,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   const [editingSoldier, setEditingSoldier] = useState<Soldier | null>(null);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [editableFileName, setEditableFileName] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -110,6 +111,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       soldierForm.reset({ id: "", name: "", divisionId: "" });
     }
     setSelectedFile(null);
+    setEditableFileName("");
     if (fileInputRef.current) fileInputRef.current.value = "";
 
   }, [editingSoldier, soldierForm, isSoldierDialogOpen]);
@@ -174,9 +176,12 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files.length > 0) {
-        setSelectedFile(event.target.files[0]);
+        const file = event.target.files[0];
+        setSelectedFile(file);
+        setEditableFileName(file.name);
     } else {
         setSelectedFile(null);
+        setEditableFileName("");
     }
   };
 
@@ -185,9 +190,14 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור חייל וקובץ להעלאה."});
         return;
     }
+    if (!editableFileName.trim()) {
+        toast({ variant: "destructive", title: "שגיאה", description: "שם הקובץ אינו יכול להיות ריק."});
+        return;
+    }
     setIsUploading(true);
     const formData = new FormData();
     formData.append("file", selectedFile);
+    formData.append("customFileName", editableFileName.trim());
 
     try {
       const newDocument = await uploadSoldierDocument(editingSoldier.id, formData);
@@ -203,6 +213,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       ));
       toast({ title: "הצלחה", description: `מסמך '${newDocument.fileName}' הועלה בהצלחה.` });
       setSelectedFile(null);
+      setEditableFileName("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
       let errorMessage = "העלאת מסמך נכשלה.";
@@ -473,6 +484,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
               setEditingSoldier(null);
               soldierForm.reset();
               setSelectedFile(null);
+              setEditableFileName("");
               if (fileInputRef.current) fileInputRef.current.value = "";
             }
           }}
@@ -526,9 +538,9 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                 <Separator className="my-6" />
                 <div className="space-y-4">
                   <h3 className="text-lg font-medium">מסמכים מצורפים</h3>
-                  <div className="space-y-2">
+                  <div>
                     <Label htmlFor="soldierDocument">העלאת מסמך חדש</Label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 mt-1">
                       <Input
                         id="soldierDocument"
                         type="file"
@@ -536,15 +548,33 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                         onChange={handleFileChange}
                         className="flex-grow"
                       />
-                      <Button type="button" onClick={handleDocumentUpload} disabled={!selectedFile || isUploading}>
-                        {isUploading ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
-                        העלה
-                      </Button>
                     </div>
                   </div>
+                  {selectedFile && (
+                    <div className="mt-2">
+                        <Label htmlFor="editableFileName">שם הקובץ (ניתן לעריכה)</Label>
+                        <Input
+                            id="editableFileName"
+                            type="text"
+                            value={editableFileName}
+                            onChange={(e) => setEditableFileName(e.target.value)}
+                            placeholder="הכנס שם קובץ"
+                            className="mt-1"
+                        />
+                    </div>
+                  )}
+                  <Button 
+                    type="button" 
+                    onClick={handleDocumentUpload} 
+                    disabled={!selectedFile || isUploading || !editableFileName.trim()}
+                    className="mt-2"
+                  >
+                    {isUploading ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
+                    העלה מסמך
+                  </Button>
 
                   {editingSoldier.documents && editingSoldier.documents.length > 0 ? (
-                    <ScrollArea className="h-[200px] border rounded-md p-2">
+                    <ScrollArea className="h-[200px] border rounded-md p-2 mt-4">
                       <ul className="space-y-2">
                         {editingSoldier.documents.map((doc) => (
                           <li key={doc.id} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded">
@@ -590,7 +620,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                       </ul>
                     </ScrollArea>
                   ) : (
-                    <p className="text-sm text-muted-foreground">אין מסמכים מצורפים לחייל זה.</p>
+                    <p className="text-sm text-muted-foreground mt-4">אין מסמכים מצורפים לחייל זה.</p>
                   )}
                 </div>
               </>
@@ -676,3 +706,4 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
+

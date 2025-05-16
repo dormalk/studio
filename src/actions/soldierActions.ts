@@ -268,13 +268,15 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
 // Upload a document for a soldier
 export async function uploadSoldierDocument(soldierId: string, formData: FormData): Promise<SoldierDocument> {
   const file = formData.get("file") as File;
+  const customFileName = formData.get("customFileName") as string | null;
 
   if (!file || !(file instanceof File) || file.size === 0) {
     throw new Error("לא נבחר קובץ, או שהקובץ ריק.");
   }
-
-  const uniqueFileName = `${uuidv4()}-${file.name}`;
-  const storagePath = `soldiers/${soldierId}/documents/${uniqueFileName}`;
+  
+  const displayFileName = customFileName && customFileName.trim() !== "" ? customFileName.trim() : file.name;
+  const uniqueStorageFileName = `${uuidv4()}-${file.name}`; // Keep original file name for storage uniqueness with UUID
+  const storagePath = `soldiers/${soldierId}/documents/${uniqueStorageFileName}`;
   const storageRef = ref(storage, storagePath);
 
   try {
@@ -285,7 +287,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
 
     const documentDataForFirestore = {
       id: uuidv4(),
-      fileName: file.name,
+      fileName: displayFileName, // Use the custom/edited name for display
       storagePath: storagePath,
       downloadURL: downloadURL,
       fileType: file.type,
@@ -295,7 +297,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     
     const documentDataToReturn: SoldierDocument = {
         id: documentDataForFirestore.id,
-        fileName: file.name,
+        fileName: displayFileName, // Use the custom/edited name
         storagePath: storagePath,
         downloadURL: downloadURL,
         fileType: file.type,
@@ -341,7 +343,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
             default:
                 simpleMessage = `שגיאת שרת (${error.code}). נסה שוב מאוחר יותר.`;
         }
-    } else if (typeof error?.message === 'string') { 
+    } else if (error instanceof Error && typeof error.message === 'string') { 
         simpleMessage = error.message;
     } else if (typeof error === 'string') { 
         simpleMessage = error;
@@ -463,3 +465,4 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   return { successCount, errorCount, errors, addedSoldiers };
 }
+

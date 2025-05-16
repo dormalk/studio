@@ -108,6 +108,7 @@ export function SoldierDetailClient({
   const [availableNonUniqueItems, setAvailableNonUniqueItems] = useState(initialAvailableNonUniqueItems);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [editableFileName, setEditableFileName] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const armoryItemFileInputRef = useRef<HTMLInputElement>(null);
@@ -229,9 +230,12 @@ export function SoldierDetailClient({
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files.length > 0) {
-        setSelectedFile(event.target.files[0]);
+        const file = event.target.files[0];
+        setSelectedFile(file);
+        setEditableFileName(file.name);
     } else {
         setSelectedFile(null);
+        setEditableFileName("");
     }
   };
 
@@ -240,9 +244,15 @@ export function SoldierDetailClient({
         toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור חייל וקובץ להעלאה."});
         return;
     }
+    if (!editableFileName.trim()) {
+        toast({ variant: "destructive", title: "שגיאה", description: "שם הקובץ אינו יכול להיות ריק."});
+        return;
+    }
     setIsUploading(true);
     const formData = new FormData();
     formData.append("file", selectedFile);
+    formData.append("customFileName", editableFileName.trim());
+
 
     try {
       const newDocument = await uploadSoldierDocument(soldier.id, formData);
@@ -253,6 +263,7 @@ export function SoldierDetailClient({
       });
       toast({ title: "הצלחה", description: `מסמך '${newDocument.fileName}' הועלה בהצלחה.` });
       setSelectedFile(null);
+      setEditableFileName("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
       let errorMessage = "העלאת מסמך נכשלה.";
@@ -564,9 +575,9 @@ export function SoldierDetailClient({
           <CardTitle>מסמכים מצורפים</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
+          <div>
             <Label htmlFor="soldierDocumentUpload">העלאת מסמך חדש</Label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mt-1">
               <Input
                 id="soldierDocumentUpload"
                 type="file"
@@ -574,15 +585,33 @@ export function SoldierDetailClient({
                 onChange={handleFileChange}
                 className="flex-grow"
               />
-              <Button type="button" onClick={handleDocumentUpload} disabled={!selectedFile || isUploading}>
-                {isUploading ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
-                העלה
-              </Button>
             </div>
           </div>
+          {selectedFile && (
+            <div className="mt-2">
+                <Label htmlFor="editableFileNameSoldierPage">שם הקובץ (ניתן לעריכה)</Label>
+                <Input
+                    id="editableFileNameSoldierPage"
+                    type="text"
+                    value={editableFileName}
+                    onChange={(e) => setEditableFileName(e.target.value)}
+                    placeholder="הכנס שם קובץ"
+                    className="mt-1"
+                />
+            </div>
+          )}
+          <Button 
+            type="button" 
+            onClick={handleDocumentUpload} 
+            disabled={!selectedFile || isUploading || !editableFileName.trim()}
+            className="mt-2"
+          >
+            {isUploading ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
+            העלה מסמך
+          </Button>
 
           {soldier.documents && soldier.documents.length > 0 ? (
-            <ScrollArea className="h-[250px] border rounded-md p-2">
+            <ScrollArea className="h-[250px] border rounded-md p-2 mt-4">
               <ul className="space-y-2">
                 {soldier.documents.map((doc) => (
                   <li key={doc.id} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded">
@@ -628,7 +657,7 @@ export function SoldierDetailClient({
               </ul>
             </ScrollArea>
           ) : (
-            <p className="text-sm text-muted-foreground text-center py-4">אין מסמכים מצורפים לחייל זה.</p>
+            <p className="text-sm text-muted-foreground text-center py-4 mt-4">אין מסמכים מצורפים לחייל זה.</p>
           )}
         </CardContent>
       </Card>
@@ -883,3 +912,4 @@ export function SoldierDetailClient({
     </div>
   );
 }
+
