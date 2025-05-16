@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, User, Trash2, Edit3, GripVertical, Users } from "lucide-react";
+import { PlusCircle, User, Trash2, Edit3, GripVertical, Users, Undo2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -28,7 +28,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { addSoldier, transferSoldier, deleteSoldier, updateSoldier } from "@/actions/soldierActions";
-import { addDivision, deleteDivision, updateDivision } from "@/actions/divisionActions"; // Stays as divisionActions, type Division
+import { addDivision, deleteDivision, updateDivision } from "@/actions/divisionActions";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import {
@@ -46,37 +46,38 @@ import {
 const soldierSchema = z.object({
   id: z.string().min(1, "ת.ז. הינו שדה חובה").regex(/^\d+$/, "ת.ז. חייבת להכיל מספרים בלבד"),
   name: z.string().min(1, "שם הינו שדה חובה"),
-  divisionId: z.string().min(1, "יש לבחור פלוגה"), // Changed
+  divisionId: z.string().min(1, "יש לבחור פלוגה"),
 });
 
-const divisionSchema = z.object({ // Variable name remains divisionSchema, tied to Division type
-  name: z.string().min(1, "שם פלוגה הינו שדה חובה"), // Changed
+const divisionSchema = z.object({
+  name: z.string().min(1, "שם פלוגה הינו שדה חובה"),
 });
 
 interface SoldiersManagementClientProps {
   initialSoldiers: Soldier[];
-  initialDivisions: Division[]; // Type remains Division, represents "Pluga" data
+  initialDivisions: Division[];
 }
 
 export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: SoldiersManagementClientProps) {
   const [soldiers, setSoldiers] = useState<Soldier[]>(initialSoldiers);
-  const [divisions, setDivisions] = useState<Division[]>(initialDivisions); // Represents "Plugas"
+  const [divisions, setDivisions] = useState<Division[]>(initialDivisions);
   const [searchTerm, setSearchTerm] = useState("");
   const [draggedSoldier, setDraggedSoldier] = useState<Soldier | null>(null);
   const { toast } = useToast();
 
   const [isSoldierDialogOpen, setIsSoldierDialogOpen] = useState(false);
-  const [isDivisionDialogOpen, setIsDivisionDialogOpen] = useState(false); // For "Pluga" dialog
+  const [isDivisionDialogOpen, setIsDivisionDialogOpen] = useState(false);
   const [editingSoldier, setEditingSoldier] = useState<Soldier | null>(null);
-  const [editingDivision, setEditingDivision] = useState<Division | null>(null); // For "Pluga" edit
+  const [editingDivision, setEditingDivision] = useState<Division | null>(null);
 
+  const [focusedSourceId, setFocusedSourceId] = useState<string | null>(null); // Can be divisionId or "unassigned"
 
   const soldierForm = useForm<z.infer<typeof soldierSchema>>({
     resolver: zodResolver(soldierSchema),
     defaultValues: { id: "", name: "", divisionId: "" },
   });
 
-  const divisionForm = useForm<z.infer<typeof divisionSchema>>({ // For "Pluga" form
+  const divisionForm = useForm<z.infer<typeof divisionSchema>>({
     resolver: zodResolver(divisionSchema),
     defaultValues: { name: "" },
   });
@@ -102,30 +103,27 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
   }, [editingSoldier, soldierForm, isSoldierDialogOpen]);
 
   useEffect(() => {
-    if (editingDivision) { // editing "Pluga"
+    if (editingDivision) {
       divisionForm.reset({ name: editingDivision.name });
     } else {
       divisionForm.reset({ name: "" });
     }
   }, [editingDivision, divisionForm, isDivisionDialogOpen]);
 
-
-  const filteredSoldiers = useMemo(() => {
-    return soldiers.filter(soldier =>
-      soldier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      soldier.id.includes(searchTerm)
-    );
-  }, [soldiers, searchTerm]);
-
-  const soldiersByDivision = useMemo(() => { // soldiersByPluga conceptually
+  const soldiersByDivision = useMemo(() => {
     const grouped: Record<string, Soldier[]> = {};
-    divisions.forEach(div => { // div here represents a "Pluga"
+    divisions.forEach(div => {
       grouped[div.id] = [];
     });
     grouped["unassigned"] = [];
 
+    // Apply global search term filter first if not focused
+    const soldiersToGroup = focusedSourceId ? soldiers : soldiers.filter(soldier =>
+        soldier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        soldier.id.includes(searchTerm)
+    );
 
-    filteredSoldiers.forEach(soldier => {
+    soldiersToGroup.forEach(soldier => {
       if (grouped[soldier.divisionId]) {
         grouped[soldier.divisionId].push(soldier);
       } else {
@@ -133,7 +131,29 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
       }
     });
     return grouped;
-  }, [filteredSoldiers, divisions]);
+  }, [soldiers, divisions, searchTerm, focusedSourceId]); // searchTerm dependency removed here, will be applied in focused view or globally
+
+  const focusedSourceDetails = useMemo(() => {
+    if (!focusedSourceId || focusedSourceId === "unassigned") return null;
+    return divisions.find(d => d.id === focusedSourceId);
+  }, [divisions, focusedSourceId]);
+
+  const focusedSourceName = useMemo(() => {
+    if (!focusedSourceId) return "";
+    if (focusedSourceId === "unassigned") return "לא משויכים";
+    return focusedSourceDetails?.name || "";
+  }, [focusedSourceId, focusedSourceDetails]);
+
+  const soldiersInFocusedSource = useMemo(() => {
+    if (!focusedSourceId) return [];
+    const sourceSoldiers = soldiersByDivision[focusedSourceId] || [];
+    if (!searchTerm) return sourceSoldiers; // If no search term, return all from focused source
+    return sourceSoldiers.filter(soldier => // Apply search term if present
+      soldier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      soldier.id.includes(searchTerm)
+    );
+  }, [soldiersByDivision, focusedSourceId, searchTerm]);
+
 
   const handleAddOrUpdateSoldier = async (values: z.infer<typeof soldierSchema>) => {
     try {
@@ -157,25 +177,25 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     }
   };
   
-  const handleAddOrUpdateDivision = async (values: z.infer<typeof divisionSchema>) => { // For "Pluga"
+  const handleAddOrUpdateDivision = async (values: z.infer<typeof divisionSchema>) => {
     try {
-      if (editingDivision) { // editing "Pluga"
-        await updateDivision(editingDivision.id, values); // updateDivision action for "Pluga"
+      if (editingDivision) {
+        await updateDivision(editingDivision.id, values);
         setDivisions(prev => prev.map(d => d.id === editingDivision.id ? { ...d, ...values } : d));
         setSoldiers(prevSoldiers => prevSoldiers.map(s => 
             s.divisionId === editingDivision.id ? { ...s, divisionName: values.name } : s
         ));
-        toast({ title: "הצלחה", description: "שם הפלוגה עודכן." }); // Changed
+        toast({ title: "הצלחה", description: "שם הפלוגה עודכן." });
       } else {
-        const newDivision = await addDivision(values); // addDivision action for "Pluga"
+        const newDivision = await addDivision(values);
         setDivisions(prev => [...prev, newDivision]);
-        toast({ title: "הצלחה", description: "פלוגה נוספה בהצלחה." }); // Changed
+        toast({ title: "הצלחה", description: "פלוגה נוספה בהצלחה." });
       }
       setIsDivisionDialogOpen(false);
       setEditingDivision(null);
       divisionForm.reset();
     } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת פלוגה נכשלה." }); // Changed
+      toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת פלוגה נכשלה." });
     }
   };
 
@@ -189,28 +209,25 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     }
   };
 
-  const handleDeleteDivision = async (divisionId: string) => { // Deleting "Pluga"
+  const handleDeleteDivision = async (divisionId: string) => {
      if (soldiersByDivision[divisionId]?.length > 0) {
-      toast({ variant: "destructive", title: "שגיאה", description: "לא ניתן למחוק פלוגה עם חיילים משויכים. יש להעביר את החיילים תחילה."}); // Changed
+      toast({ variant: "destructive", title: "שגיאה", description: "לא ניתן למחוק פלוגה עם חיילים משויכים. יש להעביר את החיילים תחילה."});
       return;
     }
     try {
-      await deleteDivision(divisionId); // deleteDivision action for "Pluga"
+      await deleteDivision(divisionId);
       setDivisions(prev => prev.filter(d => d.id !== divisionId));
       setSoldiers(prevSoldiers => 
         prevSoldiers.map(s => 
           s.divisionId === divisionId ? { ...s, divisionId: "unassigned", divisionName: "לא משויך" } : s
         )
       );
-      toast({ title: "הצלחה", description: "פלוגה נמחקה בהצלחה." }); // Changed
+      toast({ title: "הצלחה", description: "פלוגה נמחקה בהצלחה." });
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: (error as Error).message || "מחיקת פלוגה נכשלה." });
     }
   };
 
-  // The JSX for rendering the component UI was missing from the provided file content.
-  // Adding a placeholder return statement to make the file syntactically correct.
-  // The actual UI will need to be restored.
   const handleDragStart = (e: DragEvent<HTMLDivElement>, soldier: Soldier) => {
     setDraggedSoldier(soldier);
   };
@@ -247,8 +264,16 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-        <h1 className="text-3xl font-bold">ניהול חיילים</h1>
+        <h1 className="text-3xl font-bold">
+          {focusedSourceId ? (focusedSourceId === "unassigned" ? "חיילים לא משויכים" : `פלוגה: ${focusedSourceName}`) : "ניהול חיילים ופלוגות"}
+        </h1>
         <div className="flex gap-2">
+          {focusedSourceId && (
+            <Button variant="outline" onClick={() => setFocusedSourceId(null)}>
+              <Undo2 className="ms-2 h-4 w-4" />
+              חזור לכל הפלוגות
+            </Button>
+          )}
           <Dialog open={isSoldierDialogOpen} onOpenChange={(isOpen) => { setIsSoldierDialogOpen(isOpen); if (!isOpen) setEditingSoldier(null); }}>
             <DialogTrigger asChild>
               <Button><PlusCircle className="ms-2 h-4 w-4" /> הוסף חייל</Button>
@@ -274,7 +299,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
                     name="divisionId"
                     control={soldierForm.control}
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                      <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value || ""}>
                         <SelectTrigger>
                           <SelectValue placeholder="בחר פלוגה" />
                         </SelectTrigger>
@@ -282,6 +307,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
                           {divisions.map(div => (
                             <SelectItem key={div.id} value={div.id}>{div.name}</SelectItem>
                           ))}
+                           <SelectItem value="unassigned">לא משויך</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
@@ -318,33 +344,35 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
               <div className="mt-6">
                 <h3 className="text-lg font-medium mb-2">פלוגות קיימות</h3>
                 {divisions.length === 0 && <p className="text-sm text-muted-foreground">אין פלוגות להצגה.</p>}
-                <ul className="space-y-2 max-h-60 overflow-y-auto">
-                  {divisions.map(div => (
-                    <li key={div.id} className="flex justify-between items-center p-2 border rounded-md">
-                      <span>{div.name}</span>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => openEditDivisionDialog(div)}><Edit3 className="w-4 h-4" /></Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" disabled={soldiersByDivision[div.id]?.length > 0}><Trash2 className="w-4 h-4 text-destructive" /></Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                האם אתה בטוח שברצונך למחוק את הפלוגה "{div.name}"?
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>ביטול</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeleteDivision(div.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <ScrollArea className="max-h-60">
+                  <ul className="space-y-2 ">
+                    {divisions.map(div => (
+                      <li key={div.id} className="flex justify-between items-center p-2 border rounded-md">
+                        <span>{div.name}</span>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => openEditDivisionDialog(div)}><Edit3 className="w-4 h-4" /></Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" disabled={soldiersByDivision[div.id]?.length > 0}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  האם אתה בטוח שברצונך למחוק את הפלוגה "{div.name}"?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>ביטול</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDeleteDivision(div.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </ScrollArea>
               </div>
             </DialogContent>
           </Dialog>
@@ -353,31 +381,140 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
 
       <Input
         type="search"
-        placeholder="חפש חייל לפי שם או ת.ז..."
+        placeholder={
+          focusedSourceId 
+            ? `חפש חייל ב"${focusedSourceName}"...` 
+            : "חפש חייל לפי שם או ת.ז. (בכל הפלוגות)..."
+        }
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
         className="max-w-sm"
       />
     
-      <ScrollArea className="w-full whitespace-nowrap pb-4">
-        <div className="flex space-x-6"> {/* Use space-x for RTL due to dir="rtl" on html */}
-          {divisions.map(division => (
+      {focusedSourceId ? (
+        // Focused View
+        <div>
+          {soldiersInFocusedSource.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">
+              {searchTerm ? `לא נמצאו חיילים התואמים לחיפוש ב"${focusedSourceName}".` : `אין חיילים המשויכים ל"${focusedSourceName}".`}
+            </p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {soldiersInFocusedSource.map(soldier => (
+                <Card key={soldier.id} className="flex flex-col">
+                  <CardHeader>
+                      <div className="flex items-center justify-between">
+                          <CardTitle>{soldier.name}</CardTitle>
+                          <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => openEditSoldierDialog(soldier)}><Edit3 className="w-4 h-4"/></Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon"><Trash2 className="w-4 h-4 text-destructive"/></Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>ביטול</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                          </div>
+                      </div>
+                      <CardDescription>ת.ז. {soldier.id}</CardDescription>
+                  </CardHeader>
+                  {/* Add CardContent if more details are to be shown */}
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        // Main Kanban View
+        <ScrollArea className="w-full whitespace-nowrap pb-4">
+          <div className="flex space-x-6"> {/* Use space-x for RTL due to dir="rtl" on html */}
+            {divisions.map(division => (
+              <div
+                key={division.id}
+                className="min-w-[300px] flex-shrink-0"
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, division.id)}
+              >
+                <Card>
+                  <CardHeader 
+                    onClick={() => setFocusedSourceId(division.id)}
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  >
+                    <CardTitle className="flex justify-between items-center">
+                      {division.name}
+                      <span className="text-sm font-normal text-muted-foreground">({(soldiersByDivision[division.id] || []).length} חיילים)</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="min-h-[200px] space-y-2">
+                    {(soldiersByDivision[division.id] || []).length === 0 && <p className="text-sm text-muted-foreground text-center pt-8">אין חיילים בפלוגה זו.</p>}
+                    {(soldiersByDivision[division.id] || []).map(soldier => (
+                      <Card 
+                        key={soldier.id} 
+                        draggable 
+                        onDragStart={(e) => handleDragStart(e, soldier)}
+                        className="p-3 cursor-grab active:cursor-grabbing flex items-center justify-between"
+                      >
+                        <div>
+                          <p className="font-medium">{soldier.name}</p>
+                          <p className="text-xs text-muted-foreground">ת.ז. {soldier.id}</p>
+                        </div>
+                        <div className="flex gap-1 items-center">
+                          <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditSoldierDialog(soldier);}}><Edit3 className="w-3 h-3"/></Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}><Trash2 className="w-3 h-3 text-destructive"/></Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>ביטול</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                           <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
+                        </div>
+                      </Card>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
+            ))}
+            {/* Unassigned Soldiers Column */}
             <div
-              key={division.id}
+              key="unassigned"
               className="min-w-[300px] flex-shrink-0"
               onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, division.id)}
+              onDrop={(e) => handleDrop(e, "unassigned")}
             >
               <Card>
-                <CardHeader>
+                <CardHeader
+                  onClick={() => setFocusedSourceId("unassigned")}
+                  className="cursor-pointer hover:bg-muted/50 transition-colors"
+                >
                   <CardTitle className="flex justify-between items-center">
-                    {division.name}
-                    <span className="text-sm font-normal text-muted-foreground">({soldiersByDivision[division.id]?.length || 0} חיילים)</span>
+                    לא משויכים
+                    <span className="text-sm font-normal text-muted-foreground">({(soldiersByDivision["unassigned"] || []).length} חיילים)</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="min-h-[200px] space-y-2">
-                  {soldiersByDivision[division.id]?.length === 0 && <p className="text-sm text-muted-foreground text-center pt-8">אין חיילים בפלוגה זו.</p>}
-                  {soldiersByDivision[division.id]?.map(soldier => (
+                  {(soldiersByDivision["unassigned"] || []).length === 0 && <p className="text-sm text-muted-foreground text-center pt-8">אין חיילים לא משויכים.</p>}
+                  {(soldiersByDivision["unassigned"] || []).map(soldier => (
                     <Card 
                       key={soldier.id} 
                       draggable 
@@ -388,91 +525,36 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
                         <p className="font-medium">{soldier.name}</p>
                         <p className="text-xs text-muted-foreground">ת.ז. {soldier.id}</p>
                       </div>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => openEditSoldierDialog(soldier)}><Edit3 className="w-3 h-3"/></Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon"><Trash2 className="w-3 h-3 text-destructive"/></Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>ביטול</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                         <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
+                      <div className="flex gap-1 items-center">
+                        <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditSoldierDialog(soldier); }}><Edit3 className="w-3 h-3"/></Button>
+                         <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}><Trash2 className="w-3 h-3 text-destructive"/></Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>ביטול</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
                       </div>
                     </Card>
                   ))}
                 </CardContent>
               </Card>
             </div>
-          ))}
-           {/* Unassigned Soldiers Column */}
-           <div
-            key="unassigned"
-            className="min-w-[300px] flex-shrink-0"
-            onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(e, "unassigned")}
-          >
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex justify-between items-center">
-                  לא משויכים
-                  <span className="text-sm font-normal text-muted-foreground">({soldiersByDivision["unassigned"]?.length || 0} חיילים)</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="min-h-[200px] space-y-2">
-                {soldiersByDivision["unassigned"]?.length === 0 && <p className="text-sm text-muted-foreground text-center pt-8">אין חיילים לא משויכים.</p>}
-                {soldiersByDivision["unassigned"]?.map(soldier => (
-                  <Card 
-                    key={soldier.id} 
-                    draggable 
-                    onDragStart={(e) => handleDragStart(e, soldier)}
-                    className="p-3 cursor-grab active:cursor-grabbing flex items-center justify-between"
-                  >
-                    <div>
-                      <p className="font-medium">{soldier.name}</p>
-                      <p className="text-xs text-muted-foreground">ת.ז. {soldier.id}</p>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => openEditSoldierDialog(soldier)}><Edit3 className="w-3 h-3"/></Button>
-                       <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon"><Trash2 className="w-3 h-3 text-destructive"/></Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>ביטול</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-                    </div>
-                  </Card>
-                ))}
-              </CardContent>
-            </Card>
           </div>
-        </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
+      )}
     </div>
   );
 }
-
-    
