@@ -24,7 +24,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Timestamp } from "firebase/firestore";
 import { uploadSoldierDocument, deleteSoldierDocument, updateSoldier } from "@/actions/soldierActions";
-import { addArmoryItem, scanArmoryItemImage, manageSoldierAssignmentToNonUniqueItem } from "@/actions/armoryActions";
+import { 
+    addArmoryItem, 
+    scanArmoryItemImage, 
+    manageSoldierAssignmentToNonUniqueItem,
+    getArmoryItemsBySoldierId, // Added import
+    getArmoryItems // Added import
+} from "@/actions/armoryActions";
 import Link from "next/link";
 import Image from "next/image";
 import { 
@@ -193,7 +199,7 @@ export function SoldierDetailClient({
       setSelectedItemTypeForSoldierPageIsUnique(null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
     }
-  }, [addUniqueArmoryItemForm.watch("itemTypeId"), allArmoryItemTypes]);
+  }, [addUniqueArmoryItemForm.watch("itemTypeId"), allArmoryItemTypes, addUniqueArmoryItemForm]);
 
 
   useEffect(() => {
@@ -371,7 +377,7 @@ export function SoldierDetailClient({
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
-        }).filter(item => (item.availableQuantity || 0) > 0 || item.assignments?.some(a => a.soldierId === soldierId));
+        }).filter(item => (item.availableQuantity || 0) > 0 || (item.assignments && item.assignments.some(a => a.soldierId === soldier.id))); // Corrected condition
         setAvailableNonUniqueItems(updatedAvailableNonUnique as Array<ArmoryItem & { availableQuantity: number }>);
 
         toast({title: "הצלחה", description: "הפריט הוקצה לחייל."});
@@ -393,7 +399,7 @@ export function SoldierDetailClient({
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
-        }).filter(item => (item.availableQuantity || 0) > 0 || item.assignments?.some(a => a.soldierId === soldierId));
+        }).filter(item => (item.availableQuantity || 0) > 0 || (item.assignments && item.assignments.some(a => a.soldierId === soldier.id))); // Corrected condition
         setAvailableNonUniqueItems(updatedAvailableNonUnique as Array<ArmoryItem & { availableQuantity: number }>);
 
         toast({title: "הצלחה", description: "כמות הפריט עודכנה."});
@@ -414,7 +420,7 @@ export function SoldierDetailClient({
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
-        }).filter(item => (item.availableQuantity || 0) > 0 || item.assignments?.some(a => a.soldierId === soldierId));
+        }).filter(item => (item.availableQuantity || 0) > 0 || (item.assignments && item.assignments.some(a => a.soldierId === soldier.id))); // Corrected condition
         setAvailableNonUniqueItems(updatedAvailableNonUnique as Array<ArmoryItem & { availableQuantity: number }>);
 
         toast({title: "הצלחה", description: "הקצאת הפריט בוטלה."});
@@ -826,3 +832,4 @@ export function SoldierDetailClient({
     </div>
   );
 }
+
