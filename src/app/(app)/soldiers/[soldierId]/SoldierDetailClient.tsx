@@ -2,12 +2,12 @@
 "use client";
 
 import type { Soldier, ArmoryItem, SoldierDocument, Division, ArmoryItemType } from "@/types";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle, Camera, PlusCircle, MinusCircle, Edit } from "lucide-react";
+import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle, Camera, PlusCircle, MinusCircle, Edit, Link2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -29,7 +29,8 @@ import {
     scanArmoryItemImage,
     manageSoldierAssignmentToNonUniqueItem,
     getArmoryItemsBySoldierId,
-    getArmoryItems
+    getArmoryItems,
+    updateArmoryItem,
 } from "@/actions/armoryActions";
 import Link from "next/link";
 import Image from "next/image";
@@ -43,6 +44,7 @@ import {
     DialogClose,
     DialogTrigger
 } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { useForm, Controller, useWatch } from "react-hook-form";
 import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -55,6 +57,7 @@ interface SoldierDetailClientProps {
   initialArmoryItems: ArmoryItem[];
   initialArmoryItemTypes: ArmoryItemType[];
   availableNonUniqueItems: Array<ArmoryItem & { availableQuantity: number }>;
+  initialAllExistingArmoryItems: ArmoryItem[];
 }
 
 const soldierDetailsSchema = z.object({
@@ -65,24 +68,28 @@ type SoldierDetailsFormData = z.infer<typeof soldierDetailsSchema>;
 
 const armoryItemBaseSchemaOnSoldierPage = z.object({
   itemTypeId: z.string().min(1, "יש לבחור סוג פריט"),
-  itemId: z.string().optional(),
+  itemId: z.string().optional(), // Serial number
   photoDataUri: z.string().optional(),
 });
 
 const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRefine((data, ctx) => {
-  const isUnique = (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__;
-  if (isUnique === true) {
-    if (!data.itemId || data.itemId.trim() === "") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["itemId"],
-        message: "מספר סריאלי הינו שדה חובה עבור פריט ייחודי",
-      });
+  // This validation only applies if creating a new unique item.
+  // Linking existing items has different validation.
+  const currentDialogMode = (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__;
+  if (currentDialogMode === 'create') {
+    const isUnique = (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__;
+    if (isUnique === true) {
+      if (!data.itemId || data.itemId.trim() === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["itemId"],
+          message: "מספר סריאלי הינו שדה חובה עבור פריט ייחודי",
+        });
+      }
     }
   }
 });
 type ArmoryItemFormDataOnSoldierPage = z.infer<typeof armoryItemSchemaOnSoldierPage>;
-
 
 const assignNonUniqueSchema = z.object({
     selectedArmoryItemId: z.string().min(1, "יש לבחור פריט נשקייה"),
@@ -95,17 +102,25 @@ const updateAssignedQuantitySchema = z.object({
 });
 type UpdateAssignedQuantityFormData = z.infer<typeof updateAssignedQuantitySchema>;
 
+const linkExistingItemSchema = z.object({
+  existingArmoryItemIdToLink: z.string().min(1, "יש לבחור פריט קיים לקשירה"),
+});
+type LinkExistingItemFormData = z.infer<typeof linkExistingItemSchema>;
+
 
 export function SoldierDetailClient({
     soldier: initialSoldier,
     initialArmoryItems,
     initialArmoryItemTypes,
-    availableNonUniqueItems: initialAvailableNonUniqueItems
+    availableNonUniqueItems: initialAvailableNonUniqueItems,
+    initialAllExistingArmoryItems
 }: SoldierDetailClientProps) {
   const [soldier, setSoldier] = useState<Soldier>(initialSoldier);
   const [armoryItemsForSoldier, setArmoryItemsForSoldier] = useState<ArmoryItem[]>(initialArmoryItems);
   const [allArmoryItemTypes, setAllArmoryItemTypes] = useState<ArmoryItemType[]>(initialArmoryItemTypes);
   const [availableNonUniqueItems, setAvailableNonUniqueItems] = useState(initialAvailableNonUniqueItems);
+  const [allExistingArmoryItems, setAllExistingArmoryItems] = useState<ArmoryItem[]>(initialAllExistingArmoryItems);
+
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [editableFileName, setEditableFileName] = useState<string>("");
@@ -115,7 +130,7 @@ export function SoldierDetailClient({
   const { toast } = useToast();
 
   const [isEditSoldierDialogOpen, setIsEditSoldierDialogOpen] = useState(false);
-  const [isAddUniqueArmoryItemDialogOpen, setIsAddUniqueArmoryItemDialogOpen] = useState(false);
+  const [isAddOrLinkUniqueArmoryItemDialogOpen, setIsAddOrLinkUniqueArmoryItemDialogOpen] = useState(false);
   const [selectedItemTypeForSoldierPageIsUnique, setSelectedItemTypeForSoldierPageIsUnique] = useState<boolean | null>(null);
   const [allDivisions, setAllDivisions] = useState<Division[]>([]);
 
@@ -126,6 +141,8 @@ export function SoldierDetailClient({
   const [isUpdateQuantityDialogOpen, setIsUpdateQuantityDialogOpen] = useState(false);
   const [itemToUpdateAssignment, setItemToUpdateAssignment] = useState<ArmoryItem | null>(null);
 
+  const [addOrLinkDialogMode, setAddOrLinkDialogMode] = useState<'create' | 'link'>('create');
+  const [linkItemSearchTerm, setLinkItemSearchTerm] = useState('');
 
   const soldierDetailsForm = useForm<SoldierDetailsFormData>({
     resolver: zodResolver(soldierDetailsSchema),
@@ -138,6 +155,11 @@ export function SoldierDetailClient({
   const addUniqueArmoryItemForm = useForm<ArmoryItemFormDataOnSoldierPage>({
     resolver: zodResolver(armoryItemSchemaOnSoldierPage),
     defaultValues: { itemTypeId: "", itemId: "", photoDataUri: undefined},
+  });
+  
+  const linkExistingItemForm = useForm<LinkExistingItemFormData>({
+    resolver: zodResolver(linkExistingItemSchema),
+    defaultValues: { existingArmoryItemIdToLink: "" },
   });
 
   const assignNonUniqueForm = useForm<AssignNonUniqueFormData>({
@@ -172,6 +194,10 @@ export function SoldierDetailClient({
   useEffect(() => {
     setAvailableNonUniqueItems(initialAvailableNonUniqueItems);
   }, [initialAvailableNonUniqueItems]);
+  
+  useEffect(() => {
+    setAllExistingArmoryItems(initialAllExistingArmoryItems);
+  }, [initialAllExistingArmoryItems]);
 
 
   useEffect(() => {
@@ -202,14 +228,18 @@ export function SoldierDetailClient({
 
 
   useEffect(() => {
-    if (!isAddUniqueArmoryItemDialogOpen) {
+    if (!isAddOrLinkUniqueArmoryItemDialogOpen) {
       addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined});
+      linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
       setScannedArmoryImagePreview(null);
       setSelectedItemTypeForSoldierPageIsUnique(null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
+      (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create';
+      setAddOrLinkDialogMode('create');
+      setLinkItemSearchTerm('');
       if (armoryItemFileInputRef.current) armoryItemFileInputRef.current.value = "";
     }
-  }, [isAddUniqueArmoryItemDialogOpen, addUniqueArmoryItemForm]);
+  }, [isAddOrLinkUniqueArmoryItemDialogOpen, addUniqueArmoryItemForm, linkExistingItemForm]);
 
   useEffect(() => {
     if(!isAssignNonUniqueDialogOpen) {
@@ -226,6 +256,10 @@ export function SoldierDetailClient({
         updateAssignedQuantityForm.reset({newQuantity: 1});
     }
   }, [isUpdateQuantityDialogOpen, itemToUpdateAssignment, updateAssignedQuantityForm]);
+  
+  useEffect(() => {
+    (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = addOrLinkDialogMode;
+  }, [addOrLinkDialogMode]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -257,7 +291,7 @@ export function SoldierDetailClient({
     try {
       const newDocument = await uploadSoldierDocument(soldier.id, formData);
       setSoldier(prev => {
-        if (!prev) return prev; // Should not happen if soldier is loaded
+        if (!prev) return prev; 
         const updatedDocs = [...(prev.documents || []), newDocument];
         return { ...prev, documents: updatedDocs };
       });
@@ -278,7 +312,7 @@ export function SoldierDetailClient({
     try {
       await deleteSoldierDocument(soldier.id, documentId, storagePath);
       const updatedDocs = soldier.documents?.filter(doc => doc.id !== documentId);
-      setSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null); // Should not be null
+      setSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null); 
       toast({ title: "הצלחה", description: "המסמך נמחק." });
     } catch (error: any) {
       console.error("Client-side document delete error details:", error);
@@ -292,7 +326,7 @@ export function SoldierDetailClient({
         await updateSoldier(soldier.id, { name: values.name, divisionId: values.divisionId });
         const updatedDivision = allDivisions.find(d => d.id === values.divisionId);
         setSoldier(prev => ({
-            ...prev!, // soldier is guaranteed to be non-null here
+            ...prev!, 
             name: values.name,
             divisionId: values.divisionId,
             divisionName: updatedDivision?.name || "לא משויך"
@@ -319,27 +353,24 @@ export function SoldierDetailClient({
           const currentItemTypeId = addUniqueArmoryItemForm.getValues("itemTypeId");
           const currentItemType = allArmoryItemTypes.find(t => t.id === currentItemTypeId);
 
-          // Only set itemId from scan if the selected/current type is unique
           if (currentItemType && currentItemType.isUnique) {
             addUniqueArmoryItemForm.setValue("itemId", result.itemId);
           } else if (!currentItemType && selectedItemTypeForSoldierPageIsUnique === true) { 
-             // If no type is selected yet, but we expect a unique one (based on dialog context)
              addUniqueArmoryItemForm.setValue("itemId", result.itemId);
           }
 
           const matchedType = allArmoryItemTypes.find(type => type.name.toLowerCase() === result.itemType.toLowerCase());
           if (matchedType) {
-            if (matchedType.isUnique) { // Only auto-select if scanned type is unique
+            if (matchedType.isUnique) { 
                 addUniqueArmoryItemForm.setValue("itemTypeId", matchedType.id);
                 setSelectedItemTypeForSoldierPageIsUnique(matchedType.isUnique);
                 (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = matchedType.isUnique;
-                if (matchedType.isUnique) { // Also ensure itemId is set if the auto-selected type is unique
+                if (matchedType.isUnique) { 
                     addUniqueArmoryItemForm.setValue("itemId", result.itemId);
                 }
                 addUniqueArmoryItemForm.trigger(["itemTypeId", "itemId"]);
                 toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}, מספר סריאלי: ${result.itemId}` });
             } else {
-                // If scanned type is not unique, don't auto-select it in this dialog meant for unique items
                 toast({ variant: "default", title: "סריקה - מידע נוסף", description: `זוהה מספר סריאלי: ${result.itemId}. סוג הפריט '${result.itemType}' שזוהה אינו ייחודי. יש לבחור סוג פריט ייחודי מהרשימה.` });
             }
           } else {
@@ -355,18 +386,14 @@ export function SoldierDetailClient({
     }
   };
 
-  const handleAddArmoryItemToSoldier = async (values: ArmoryItemFormDataOnSoldierPage) => {
+  const handleCreateNewUniqueArmoryItem = async (values: ArmoryItemFormDataOnSoldierPage) => {
     if (!soldier) return;
     const type = allArmoryItemTypes.find(t => t.id === values.itemTypeId);
-    if (!type) {
-      toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט חוקי." });
+    if (!type || !type.isUnique) {
+      toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט ייחודי חוקי." });
       return;
     }
-    if (!type.isUnique) { 
-        toast({ variant: "destructive", title: "שגיאה", description: "ניתן להוסיף ולשייך רק פריטים ייחודיים ישירות לחייל דרך טופס זה." });
-        return;
-    }
-    (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type.isUnique;
+    (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type.isUnique; // Ensure flag is set
 
     const validationResult = armoryItemSchemaOnSoldierPage.safeParse(values);
      if (!validationResult.success) {
@@ -401,11 +428,48 @@ export function SoldierDetailClient({
       };
 
       setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
+      // Also update the allExistingArmoryItems to reflect this new item
+      setAllExistingArmoryItems(prev => [...prev, newItemForState]);
+
       toast({ title: "הצלחה", description: `פריט נשקייה (${type.name}) נוסף ושויך לחייל.` });
-      setIsAddUniqueArmoryItemDialogOpen(false);
+      setIsAddOrLinkUniqueArmoryItemDialogOpen(false);
 
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת פריט נשקייה נכשלה." });
+    }
+  };
+  
+  const handleLinkExistingUniqueArmoryItem = async (values: LinkExistingItemFormData) => {
+    if (!soldier) return;
+    const itemIdToLink = values.existingArmoryItemIdToLink;
+    const itemToLink = allExistingArmoryItems.find(item => item.id === itemIdToLink);
+
+    if (!itemToLink || !itemToLink.isUniqueItem || itemToLink.linkedSoldierId) {
+        toast({variant: "destructive", title: "שגיאה", description: "הפריט הנבחר אינו פריט ייחודי פנוי."});
+        return;
+    }
+
+    try {
+        await updateArmoryItem(itemIdToLink, { linkedSoldierId: soldier.id });
+        
+        const updatedItemForSoldierList: ArmoryItem = {
+            ...itemToLink,
+            linkedSoldierId: soldier.id,
+            linkedSoldierName: soldier.name,
+            linkedSoldierDivisionName: soldier.divisionName,
+        };
+        setArmoryItemsForSoldier(prev => [...prev, updatedItemForSoldierList]);
+
+        setAllExistingArmoryItems(prev => prev.map(item => 
+            item.id === itemIdToLink 
+            ? { ...item, linkedSoldierId: soldier.id, linkedSoldierName: soldier.name, linkedSoldierDivisionName: soldier.divisionName } 
+            : item
+        ));
+        
+        toast({ title: "הצלחה", description: `פריט "${itemToLink.itemTypeName} - ${itemToLink.itemId}" קושר לחייל.`});
+        setIsAddOrLinkUniqueArmoryItemDialogOpen(false);
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "שגיאה", description: error.message || "קשירת פריט קיים נכשלה."});
     }
   };
 
@@ -417,7 +481,7 @@ export function SoldierDetailClient({
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
 
-        const allItems = await getArmoryItems(); // Fetch all items to refresh availableNonUniqueItems
+        const allItems = await getArmoryItems(); 
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
@@ -455,7 +519,7 @@ export function SoldierDetailClient({
   const handleUnassignNonUniqueItem = async (itemIdToUnassign: string) => {
      if (!soldier) return;
      try {
-        await manageSoldierAssignmentToNonUniqueItem(itemIdToUnassign, soldier.id, 0); // Set quantity to 0 to unassign
+        await manageSoldierAssignmentToNonUniqueItem(itemIdToUnassign, soldier.id, 0); 
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
 
@@ -491,7 +555,6 @@ export function SoldierDetailClient({
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
-      // Handle Firestore Timestamp object
       date = (timestampInput as any).toDate();
     } else {
       console.warn("Invalid date input to formatDate:", timestampInput);
@@ -504,6 +567,16 @@ export function SoldierDetailClient({
     }
     return date.toLocaleDateString('he-IL');
   };
+  
+  const availableUniqueItemsToLink = useMemo(() => {
+    return allExistingArmoryItems
+        .filter(item => 
+            item.isUniqueItem && 
+            !item.linkedSoldierId &&
+            (!linkItemSearchTerm || item.itemId?.toLowerCase().includes(linkItemSearchTerm.toLowerCase()))
+        )
+        .sort((a,b) => (a.itemTypeName || "").localeCompare(b.itemTypeName || "") || (a.itemId || "").localeCompare(b.itemId || ""));
+  }, [allExistingArmoryItems, linkItemSearchTerm]);
 
   if (!soldier) return <p>טוען פרטי חייל...</p>;
 
@@ -670,83 +743,139 @@ export function SoldierDetailClient({
             <div>
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-lg font-semibold">פריטים ייחודיים ({uniqueItemsAssigned.length})</h3>
-                    <Dialog open={isAddUniqueArmoryItemDialogOpen} onOpenChange={setIsAddUniqueArmoryItemDialogOpen}>
+                    <Dialog open={isAddOrLinkUniqueArmoryItemDialogOpen} onOpenChange={setIsAddOrLinkUniqueArmoryItemDialogOpen}>
                         <DialogTrigger asChild>
-                            <Button size="sm"><PlusCircle className="ms-2 h-4 w-4" /> הוסף/שייך פריט ייחודי</Button>
+                            <Button size="sm"><PlusCircle className="ms-2 h-4 w-4" /> הוסף/קשר פריט ייחודי</Button>
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-[525px]">
                             <DialogHeader>
-                                <DialogTitle>הוסף פריט נשקייה ייחודי</DialogTitle>
-                                <DialogDescription>הוסף פריט ייחודי חדש למלאי ושייך אותו אוטומטית לחייל {soldier.name}.</DialogDescription>
+                                <DialogTitle>הוסף או קשר פריט נשקייה ייחודי</DialogTitle>
+                                <DialogDescription>צור פריט ייחודי חדש או קשר פריט ייחודי קיים לחייל {soldier.name}.</DialogDescription>
                             </DialogHeader>
-                            <form onSubmit={addUniqueArmoryItemForm.handleSubmit(handleAddArmoryItemToSoldier)} className="space-y-4 mt-4">
-                                <div>
-                                    <Label htmlFor="armoryItemTypeIdSelectSoldierPage">סוג הפריט</Label>
-                                    <Controller
-                                        name="itemTypeId"
-                                        control={addUniqueArmoryItemForm.control}
-                                        render={({ field }) => (
-                                            <Select
-                                                onValueChange={(value) => {
-                                                    field.onChange(value);
-                                                    const type = allArmoryItemTypes.find(t => t.id === value);
-                                                    setSelectedItemTypeForSoldierPageIsUnique(type ? type.isUnique : null);
-                                                    (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type ? type.isUnique : null;
-                                                    if (type && !type.isUnique) {
-                                                        addUniqueArmoryItemForm.setValue("itemTypeId", ""); 
-                                                        toast({variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט ייחודי בלבד."})
-                                                        setSelectedItemTypeForSoldierPageIsUnique(null);
-                                                        (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
-                                                    }
-                                                    addUniqueArmoryItemForm.trigger();
-                                                }}
-                                                value={field.value || ""}
-                                            >
-                                            <SelectTrigger id="armoryItemTypeIdSelectSoldierPage">
-                                                <SelectValue placeholder="בחר סוג פריט ייחודי..." />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {allArmoryItemTypes.filter(type => type.isUnique).map(type => (
-                                                <SelectItem key={type.id} value={type.id}>{type.name} (ייחודי)</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                            </Select>
-                                        )}
-                                    />
-                                    {addUniqueArmoryItemForm.formState.errors.itemTypeId && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.itemTypeId.message}</p>}
+                            <RadioGroup defaultValue="create" className="my-4" onValueChange={(value: 'create' | 'link') => setAddOrLinkDialogMode(value)}>
+                                <div className="flex items-center space-x-2 rtl:space-x-reverse">
+                                    <RadioGroupItem value="create" id="modeCreate" />
+                                    <Label htmlFor="modeCreate">צור פריט חדש</Label>
                                 </div>
+                                <div className="flex items-center space-x-2 rtl:space-x-reverse">
+                                    <RadioGroupItem value="link" id="modeLink" />
+                                    <Label htmlFor="modeLink">קשר פריט קיים</Label>
+                                </div>
+                            </RadioGroup>
 
-                                {selectedItemTypeForSoldierPageIsUnique === true && (
+                            {addOrLinkDialogMode === 'create' && (
+                                <form onSubmit={addUniqueArmoryItemForm.handleSubmit(handleCreateNewUniqueArmoryItem)} className="space-y-4 mt-4">
                                     <div>
-                                        <Label htmlFor="armoryItemIdSoldierPage">מספר סריאלי</Label>
-                                        <Input id="armoryItemIdSoldierPage" {...addUniqueArmoryItemForm.register("itemId")} />
-                                        {addUniqueArmoryItemForm.formState.errors.itemId && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.itemId.message}</p>}
+                                        <Label htmlFor="armoryItemTypeIdSelectSoldierPage">סוג הפריט</Label>
+                                        <Controller
+                                            name="itemTypeId"
+                                            control={addUniqueArmoryItemForm.control}
+                                            render={({ field }) => (
+                                                <Select
+                                                    onValueChange={(value) => {
+                                                        field.onChange(value);
+                                                        const type = allArmoryItemTypes.find(t => t.id === value);
+                                                        setSelectedItemTypeForSoldierPageIsUnique(type ? type.isUnique : null);
+                                                        (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type ? type.isUnique : null;
+                                                        if (type && !type.isUnique) {
+                                                            addUniqueArmoryItemForm.setValue("itemTypeId", ""); 
+                                                            toast({variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט ייחודי בלבד."})
+                                                            setSelectedItemTypeForSoldierPageIsUnique(null);
+                                                            (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
+                                                        }
+                                                        addUniqueArmoryItemForm.trigger();
+                                                    }}
+                                                    value={field.value || ""}
+                                                >
+                                                <SelectTrigger id="armoryItemTypeIdSelectSoldierPage">
+                                                    <SelectValue placeholder="בחר סוג פריט ייחודי..." />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {allArmoryItemTypes.filter(type => type.isUnique).map(type => (
+                                                    <SelectItem key={type.id} value={type.id}>{type.name} (ייחודי)</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                                </Select>
+                                            )}
+                                        />
+                                        {addUniqueArmoryItemForm.formState.errors.itemTypeId && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.itemTypeId.message}</p>}
                                     </div>
-                                )}
 
-                                {selectedItemTypeForSoldierPageIsUnique === true && ( 
-                                    <div>
-                                        <Label htmlFor="armoryItemImageSoldierPage">תמונת פריט (לסריקה)</Label>
-                                        <div className="flex items-center gap-2">
-                                        <Input id="armoryItemImageSoldierPage" type="file" accept="image/*" ref={armoryItemFileInputRef} onChange={handleArmoryItemFileChange} className="flex-grow"/>
-                                        <Button type="button" variant="outline" size="icon" onClick={() => armoryItemFileInputRef.current?.click()} disabled={isScanningArmoryItem}>
-                                            {isScanningArmoryItem ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                                        </Button>
+                                    {selectedItemTypeForSoldierPageIsUnique === true && (
+                                        <div>
+                                            <Label htmlFor="armoryItemIdSoldierPage">מספר סריאלי</Label>
+                                            <Input id="armoryItemIdSoldierPage" {...addUniqueArmoryItemForm.register("itemId")} />
+                                            {addUniqueArmoryItemForm.formState.errors.itemId && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.itemId.message}</p>}
                                         </div>
+                                    )}
+
+                                    {selectedItemTypeForSoldierPageIsUnique === true && ( 
+                                        <div>
+                                            <Label htmlFor="armoryItemImageSoldierPage">תמונת פריט (לסריקה)</Label>
+                                            <div className="flex items-center gap-2">
+                                            <Input id="armoryItemImageSoldierPage" type="file" accept="image/*" ref={armoryItemFileInputRef} onChange={handleArmoryItemFileChange} className="flex-grow"/>
+                                            <Button type="button" variant="outline" size="icon" onClick={() => armoryItemFileInputRef.current?.click()} disabled={isScanningArmoryItem}>
+                                                {isScanningArmoryItem ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                                            </Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {scannedArmoryImagePreview && (
+                                    <div className="mt-2 border rounded-md p-2 flex justify-center items-center h-32 overflow-hidden">
+                                        <Image src={scannedArmoryImagePreview} alt="תצוגה מקדימה" width={100} height={100} className="object-contain max-h-full" data-ai-hint="equipment military"/>
                                     </div>
-                                )}
-                                {scannedArmoryImagePreview && (
-                                <div className="mt-2 border rounded-md p-2 flex justify-center items-center h-32 overflow-hidden">
-                                    <Image src={scannedArmoryImagePreview} alt="תצוגה מקדימה" width={100} height={100} className="object-contain max-h-full" data-ai-hint="equipment military"/>
-                                </div>
-                                )}
-                                <DialogFooter>
-                                <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
-                                <Button type="submit" disabled={isScanningArmoryItem || selectedItemTypeForSoldierPageIsUnique !== true}>
-                                    {isScanningArmoryItem ? "סורק..." : "הוסף פריט"}
-                                </Button>
-                                </DialogFooter>
-                            </form>
+                                    )}
+                                    <DialogFooter>
+                                    <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
+                                    <Button type="submit" disabled={isScanningArmoryItem || selectedItemTypeForSoldierPageIsUnique !== true}>
+                                        {isScanningArmoryItem ? "סורק..." : "הוסף פריט"}
+                                    </Button>
+                                    </DialogFooter>
+                                </form>
+                            )}
+                            {addOrLinkDialogMode === 'link' && (
+                                <form onSubmit={linkExistingItemForm.handleSubmit(handleLinkExistingUniqueArmoryItem)} className="space-y-4 mt-4">
+                                    <div>
+                                        <Label htmlFor="linkItemSearch">חפש פריט לפי מספר סריאלי</Label>
+                                        <Input 
+                                            id="linkItemSearch" 
+                                            value={linkItemSearchTerm} 
+                                            onChange={(e) => setLinkItemSearchTerm(e.target.value)}
+                                            placeholder="הכנס מספר סריאלי לחיפוש..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label htmlFor="existingArmoryItemIdToLinkSelect">בחר פריט קיים (ייחודי, לא משויך)</Label>
+                                        <Controller
+                                            name="existingArmoryItemIdToLink"
+                                            control={linkExistingItemForm.control}
+                                            render={({ field }) => (
+                                                <Select onValueChange={field.onChange} value={field.value || ""}>
+                                                    <SelectTrigger id="existingArmoryItemIdToLinkSelect">
+                                                        <SelectValue placeholder="בחר פריט לקשירה..." />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {availableUniqueItemsToLink.length === 0 ? (
+                                                            <div className="p-2 text-sm text-muted-foreground">לא נמצאו פריטים ייחודיים פנויים התואמים לחיפוש.</div>
+                                                        ) : (
+                                                            availableUniqueItemsToLink.map(item => (
+                                                                <SelectItem key={item.id} value={item.id}>
+                                                                    {item.itemTypeName} - {item.itemId}
+                                                                </SelectItem>
+                                                            ))
+                                                        )}
+                                                    </SelectContent>
+                                                </Select>
+                                            )}
+                                        />
+                                        {linkExistingItemForm.formState.errors.existingArmoryItemIdToLink && <p className="text-destructive text-sm">{linkExistingItemForm.formState.errors.existingArmoryItemIdToLink.message}</p>}
+                                    </div>
+                                    <DialogFooter>
+                                        <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
+                                        <Button type="submit" disabled={!linkExistingItemForm.getValues("existingArmoryItemIdToLink")}>קשר פריט זה</Button>
+                                    </DialogFooter>
+                                </form>
+                            )}
                         </DialogContent>
                     </Dialog>
                 </div>
@@ -912,3 +1041,4 @@ export function SoldierDetailClient({
     </div>
   );
 }
+

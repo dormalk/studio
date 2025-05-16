@@ -25,7 +25,7 @@ export default async function SoldierPage({ params }: SoldierPageProps) {
   const armoryItemTypesData = getArmoryItemTypes();
   const allArmoryItemsData = getArmoryItems(); // Fetch all armory items
 
-  const [soldier, linkedArmoryItems, armoryItemTypes, allArmoryItems] = await Promise.all([
+  const [soldier, linkedArmoryItems, armoryItemTypes, allExistingArmoryItems] = await Promise.all([
     soldierData,
     linkedArmoryItemsData,
     armoryItemTypesData,
@@ -36,13 +36,13 @@ export default async function SoldierPage({ params }: SoldierPageProps) {
     notFound();
   }
   
-  const availableNonUniqueItems = allArmoryItems.filter(item => !item.isUniqueItem).map(item => {
+  const availableNonUniqueItems = allExistingArmoryItems.filter(item => !item.isUniqueItem).map(item => {
     const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
     return {
       ...item,
       availableQuantity: (item.totalQuantity || 0) - totalAssigned,
     };
-  }).filter(item => (item.availableQuantity || 0) > 0 || item.assignments?.some(a => a.soldierId === soldierId)); // Include if soldier has assignment even if stock is 0
+  }).filter(item => (item.availableQuantity || 0) > 0 || item.assignments?.some(a => a.soldierId === soldierId));
 
   return (
     <div className="container mx-auto py-8 space-y-8">
@@ -61,7 +61,9 @@ export default async function SoldierPage({ params }: SoldierPageProps) {
         initialArmoryItems={linkedArmoryItems} 
         initialArmoryItemTypes={armoryItemTypes}
         availableNonUniqueItems={availableNonUniqueItems as Array<ArmoryItem & { availableQuantity: number }>}
+        initialAllExistingArmoryItems={allExistingArmoryItems}
       />
     </div>
   );
 }
+
