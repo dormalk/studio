@@ -22,14 +22,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Timestamp } from "firebase/firestore"; 
+import type { Timestamp } from "firebase/firestore";
 import { uploadSoldierDocument, deleteSoldierDocument, updateSoldier } from "@/actions/soldierActions";
 import {
     addArmoryItem,
     scanArmoryItemImage,
     manageSoldierAssignmentToNonUniqueItem,
     getArmoryItemsBySoldierId,
-    getArmoryItems 
+    getArmoryItems
 } from "@/actions/armoryActions";
 import Link from "next/link";
 import Image from "next/image";
@@ -363,6 +363,10 @@ export function SoldierDetailClient({
       toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט חוקי." });
       return;
     }
+    if (!type.isUnique) { // Ensure only unique items are added this way
+        toast({ variant: "destructive", title: "שגיאה", description: "ניתן להוסיף ולשייך רק פריטים ייחודיים ישירות לחייל." });
+        return;
+    }
     (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type.isUnique;
 
     const validationResult = armoryItemSchemaOnSoldierPage.safeParse(values);
@@ -377,8 +381,8 @@ export function SoldierDetailClient({
     try {
       const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt' | 'totalQuantity' | 'assignments' | '_currentSoldierAssignedQuantity'> = {
         itemTypeId: validatedValues.itemTypeId,
-        isUniqueItem: type.isUnique,
-        itemId: type.isUnique ? validatedValues.itemId : undefined,
+        isUniqueItem: true, // Explicitly true
+        itemId: validatedValues.itemId,
         linkedSoldierId: soldier.id,
         imageUrl: validatedValues.photoDataUri || undefined,
       };
@@ -389,22 +393,18 @@ export function SoldierDetailClient({
         id: newItemServer.id,
         itemTypeId: newItemServer.itemTypeId,
         itemTypeName: type.name,
-        isUniqueItem: type.isUnique,
-        itemId: type.isUnique ? newItemServer.itemId : undefined,
-        linkedSoldierId: type.isUnique ? soldier.id : undefined,
-        linkedSoldierName: type.isUnique ? soldier.name : undefined,
-        linkedSoldierDivisionName: type.isUnique ? soldier.divisionName : undefined,
+        isUniqueItem: true,
+        itemId: newItemServer.itemId,
+        linkedSoldierId: soldier.id,
+        linkedSoldierName: soldier.name,
+        linkedSoldierDivisionName: soldier.divisionName,
         imageUrl: newItemServer.imageUrl,
-        totalQuantity: !type.isUnique ? newItemServer.totalQuantity : undefined,
-        assignments: !type.isUnique ? (newItemServer.assignments || []) : undefined,
+        totalQuantity: undefined, // Not for unique items
+        assignments: undefined, // Not for unique items
       };
 
-      if (type.isUnique) {
-        setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
-      }
-
-      toast({ title: "הצלחה", description: `פריט נשקייה (${type.name}) נוסף ${type.isUnique ? 'ושויך לחייל' : 'למלאי'}.` });
-
+      setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
+      toast({ title: "הצלחה", description: `פריט נשקייה (${type.name}) נוסף ושויך לחייל.` });
       setIsAddUniqueArmoryItemDialogOpen(false);
 
     } catch (error: any) {
@@ -491,15 +491,15 @@ export function SoldierDetailClient({
       date = new Date(timestampInput);
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { 
+    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
       date = (timestampInput as any).toDate();
     } else {
-      console.warn("Invalid date input to formatDate:", timestampInput);
+      // console.warn("Invalid date input to formatDate:", timestampInput);
       return 'תאריך לא תקין';
     }
 
     if (isNaN(date.getTime())) {
-      console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
+      // console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
       return 'תאריך לא תקין';
     }
     return date.toLocaleDateString('he-IL');
@@ -600,9 +600,9 @@ export function SoldierDetailClient({
                 />
             </div>
           )}
-          <Button 
-            type="button" 
-            onClick={handleDocumentUpload} 
+          <Button
+            type="button"
+            onClick={handleDocumentUpload}
             disabled={!selectedFile || isUploading || !editableFileName.trim()}
             className="mt-2"
           >
@@ -693,7 +693,7 @@ export function SoldierDetailClient({
                                                     setSelectedItemTypeForSoldierPageIsUnique(type ? type.isUnique : null);
                                                     (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type ? type.isUnique : null;
                                                     if (type && !type.isUnique) {
-                                                        addUniqueArmoryItemForm.setValue("itemTypeId", "");
+                                                        addUniqueArmoryItemForm.setValue("itemTypeId", ""); // Reset if non-unique type selected
                                                         toast({variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט ייחודי בלבד."})
                                                         setSelectedItemTypeForSoldierPageIsUnique(null);
                                                         (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
@@ -724,7 +724,7 @@ export function SoldierDetailClient({
                                     </div>
                                 )}
 
-                                {selectedItemTypeForSoldierPageIsUnique !== null && (
+                                {selectedItemTypeForSoldierPageIsUnique === true && ( // Only show for unique item types
                                     <div>
                                         <Label htmlFor="armoryItemImageSoldierPage">תמונת פריט (לסריקה)</Label>
                                         <div className="flex items-center gap-2">
@@ -742,7 +742,7 @@ export function SoldierDetailClient({
                                 )}
                                 <DialogFooter>
                                 <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
-                                <Button type="submit" disabled={isScanningArmoryItem || selectedItemTypeForSoldierPageIsUnique === null || selectedItemTypeForSoldierPageIsUnique === false}>
+                                <Button type="submit" disabled={isScanningArmoryItem || selectedItemTypeForSoldierPageIsUnique !== true}>
                                     {isScanningArmoryItem ? "סורק..." : "הוסף פריט"}
                                 </Button>
                                 </DialogFooter>
@@ -912,4 +912,3 @@ export function SoldierDetailClient({
     </div>
   );
 }
-

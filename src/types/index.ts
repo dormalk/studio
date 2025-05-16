@@ -13,8 +13,8 @@ export interface DivisionWithDetails extends Division {
 
 export interface SoldierDocument {
   id: string; // Unique ID for this document record (e.g., UUID)
-  fileName: string; // Original file name
-  storagePath: string; // Full path in Firebase Storage: soldiers/{soldierId}/documents/{uniqueFileName}
+  fileName: string; // Display file name (can be custom)
+  storagePath: string; // Full path in Firebase Storage: soldiers/{soldierId}/documents/{uniqueStorageFileName}
   downloadURL: string;
   fileType: string; // MIME type
   fileSize: number; // in bytes
@@ -63,3 +63,4 @@ export interface ArmoryItem {
   // Client-side temporary field for SoldierDetail page
   _currentSoldierAssignedQuantity?: number;
 }
+

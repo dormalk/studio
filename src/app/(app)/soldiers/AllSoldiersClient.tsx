@@ -53,7 +53,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Timestamp } from "firebase/firestore"; 
+import type { Timestamp } from "firebase/firestore";
 import * as XLSX from 'xlsx';
 
 const soldierSchema = z.object({
@@ -141,13 +141,15 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       } else {
         const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
         updatedOrNewSoldier = {
-            ...newSoldierServerData, 
-            documents: newSoldierServerData.documents || [] 
+            ...newSoldierServerData,
+            documents: newSoldierServerData.documents || []
         };
         setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
         toast({ title: "הצלחה", description: "חייל נוסף בהצלחה." });
-        setEditingSoldier(updatedOrNewSoldier);
+        setEditingSoldier(updatedOrNewSoldier); // Keep dialog open for document upload if new
       }
+      // Keep dialog open if it's a new soldier, to allow document upload
+      // setIsSoldierDialogOpen(!!editingSoldier); // Only close if editing
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת חייל נכשלה." });
     }
@@ -408,15 +410,15 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       date = new Date(timestampInput);
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { 
+    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
       date = (timestampInput as any).toDate();
     } else {
-      console.warn("Invalid date input to formatDate:", timestampInput);
+      // console.warn("Invalid date input to formatDate:", timestampInput);
       return 'תאריך לא תקין';
     }
 
     if (isNaN(date.getTime())) {
-      console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
+      // console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
       return 'תאריך לא תקין';
     }
     return date.toLocaleDateString('he-IL');
@@ -563,9 +565,9 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                         />
                     </div>
                   )}
-                  <Button 
-                    type="button" 
-                    onClick={handleDocumentUpload} 
+                  <Button
+                    type="button"
+                    onClick={handleDocumentUpload}
                     disabled={!selectedFile || isUploading || !editableFileName.trim()}
                     className="mt-2"
                   >
@@ -706,4 +708,3 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
-
