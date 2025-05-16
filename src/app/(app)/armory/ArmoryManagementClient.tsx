@@ -1,13 +1,14 @@
+
 "use client";
 
-import type { ArmoryItem } from "@/types";
+import type { ArmoryItem, ArmoryItemType } from "@/types";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Archive, Trash2, Edit3, Camera, ScanLine, Package, RefreshCw } from "lucide-react";
+import { PlusCircle, Archive, Trash2, Edit3, Camera, ScanLine, Package, RefreshCw, Settings2, ListChecks } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -18,10 +19,26 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { addArmoryItem, deleteArmoryItem, updateArmoryItem, scanArmoryItemImage } from "@/actions/armoryActions";
+import { 
+  addArmoryItem, 
+  deleteArmoryItem, 
+  updateArmoryItem, 
+  scanArmoryItemImage,
+  addArmoryItemType,
+  getArmoryItemTypes as fetchArmoryItemTypesServer, // Renamed to avoid conflict
+  updateArmoryItemType,
+  deleteArmoryItemType
+} from "@/actions/armoryActions";
 import { useToast } from "@/hooks/use-toast";
 import Image from "next/image";
 import {
@@ -35,26 +52,34 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 
 const armoryItemSchema = z.object({
   name: z.string().min(1, "שם פריט הינו שדה חובה"),
-  type: z.string().min(1, "סוג פריט הינו שדה חובה"),
+  itemTypeId: z.string().min(1, "יש לבחור סוג פריט"),
   itemId: z.string().optional(),
   description: z.string().optional(),
-  photoDataUri: z.string().optional(), // For submitting to AI
+  photoDataUri: z.string().optional(),
+});
+
+const armoryItemTypeSchema = z.object({
+  name: z.string().min(1, "שם סוג פריט הינו שדה חובה"),
 });
 
 type ArmoryItemFormData = z.infer<typeof armoryItemSchema>;
+type ArmoryItemTypeFormData = z.infer<typeof armoryItemTypeSchema>;
 
 interface ArmoryManagementClientProps {
   initialArmoryItems: ArmoryItem[];
+  initialArmoryItemTypes: ArmoryItemType[];
 }
 
-export function ArmoryManagementClient({ initialArmoryItems }: ArmoryManagementClientProps) {
+export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTypes }: ArmoryManagementClientProps) {
   const [armoryItems, setArmoryItems] = useState<ArmoryItem[]>(initialArmoryItems);
+  const [armoryItemTypes, setArmoryItemTypes] = useState<ArmoryItemType[]>(initialArmoryItemTypes);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState<string>("all");
+  const [filterItemTypeId, setFilterItemTypeId] = useState<string>("all");
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -63,9 +88,17 @@ export function ArmoryManagementClient({ initialArmoryItems }: ArmoryManagementC
   const [isItemDialogOpen, setIsItemDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ArmoryItem | null>(null);
 
+  const [isItemTypeDialogOpen, setIsItemTypeDialogOpen] = useState(false);
+  const [editingItemType, setEditingItemType] = useState<ArmoryItemType | null>(null);
+
   const itemForm = useForm<ArmoryItemFormData>({
     resolver: zodResolver(armoryItemSchema),
-    defaultValues: { name: "", type: "", itemId: "", description: "" },
+    defaultValues: { name: "", itemTypeId: "", itemId: "", description: "" },
+  });
+
+  const itemTypeForm = useForm<ArmoryItemTypeFormData>({
+    resolver: zodResolver(armoryItemTypeSchema),
+    defaultValues: { name: "" },
   });
 
   useEffect(() => {
@@ -73,32 +106,43 @@ export function ArmoryManagementClient({ initialArmoryItems }: ArmoryManagementC
   }, [initialArmoryItems]);
 
   useEffect(() => {
+    setArmoryItemTypes(initialArmoryItemTypes.sort((a, b) => a.name.localeCompare(b.name)));
+  }, [initialArmoryItemTypes]);
+
+  useEffect(() => {
     if (editingItem) {
       itemForm.reset({
         name: editingItem.name,
-        type: editingItem.type,
+        itemTypeId: editingItem.itemTypeId,
         itemId: editingItem.itemId || "",
         description: editingItem.description || "",
       });
       setScannedImagePreview(editingItem.imageUrl || null);
     } else {
-      itemForm.reset({ name: "", type: "", itemId: "", description: "" });
+      itemForm.reset({ name: "", itemTypeId: "", itemId: "", description: "" });
       setScannedImagePreview(null);
     }
   }, [editingItem, itemForm, isItemDialogOpen]);
 
-  const itemTypes = useMemo(() => {
-    const types = new Set(armoryItems.map(item => item.type));
-    return ["all", ...Array.from(types)];
-  }, [armoryItems]);
+  useEffect(() => {
+    if (editingItemType) {
+      itemTypeForm.reset({ name: editingItemType.name });
+    } else {
+      itemTypeForm.reset({ name: "" });
+    }
+  }, [editingItemType, itemTypeForm, isItemTypeDialogOpen]);
+
+  const itemTypeDisplayOptions = useMemo(() => {
+    return ["all", ...armoryItemTypes.map(type => type.id)];
+  }, [armoryItemTypes]);
 
   const filteredArmoryItems = useMemo(() => {
     return armoryItems.filter(item =>
       (item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.itemId && item.itemId.toLowerCase().includes(searchTerm.toLowerCase()))) &&
-      (filterType === "all" || item.type === filterType)
+      (filterItemTypeId === "all" || item.itemTypeId === filterItemTypeId)
     );
-  }, [armoryItems, searchTerm, filterType]);
+  }, [armoryItems, searchTerm, filterItemTypeId]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -107,13 +151,21 @@ export function ArmoryManagementClient({ initialArmoryItems }: ArmoryManagementC
       const reader = new FileReader();
       reader.onloadend = async () => {
         const dataUri = reader.result as string;
-        setScannedImagePreview(dataUri); // Show preview
-        itemForm.setValue("photoDataUri", dataUri); // Set for potential submission if needed by AI
+        setScannedImagePreview(dataUri);
+        itemForm.setValue("photoDataUri", dataUri);
         try {
-          const result = await scanArmoryItemImage(dataUri);
-          itemForm.setValue("type", result.itemType);
+          const result = await scanArmoryItemImage(dataUri); // result: { itemType: string, itemId: string }
+          // itemForm.setValue("type", result.itemType); // Old way
           itemForm.setValue("itemId", result.itemId);
-          toast({ title: "סריקה הושלמה", description: `זוהה: ${result.itemType}, מזהה: ${result.itemId}` });
+
+          const matchedType = armoryItemTypes.find(type => type.name.toLowerCase() === result.itemType.toLowerCase());
+          if (matchedType) {
+            itemForm.setValue("itemTypeId", matchedType.id);
+            toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}, מזהה: ${result.itemId}` });
+          } else {
+            toast({ variant: "default", title: "סריקה - נדרשת פעולה", description: `מזהה זוהה: ${result.itemId}. סוג פריט '${result.itemType}' לא נמצא ברשימה. אנא בחר סוג קיים או הוסף אותו.` });
+            // Leave itemTypeId empty for user to select or add.
+          }
         } catch (error: any) {
           toast({ variant: "destructive", title: "שגיאת סריקה", description: error.message || "זיהוי הפריט נכשל." });
         } finally {
@@ -126,36 +178,45 @@ export function ArmoryManagementClient({ initialArmoryItems }: ArmoryManagementC
 
   const handleAddOrUpdateItem = async (values: ArmoryItemFormData) => {
     try {
-      // Note: photoDataUri is for AI scanning, not typically stored in DB unless we want to keep the original scan
-      const dataToSave: Omit<ArmoryItem, 'id' | 'imageUrl'> & { imageUrl?: string } = {
+      const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'imageUrl' | 'createdAt'> & { imageUrl?: string } = {
         name: values.name,
-        type: values.type,
+        itemTypeId: values.itemTypeId,
         itemId: values.itemId,
         description: values.description,
       };
-      if (scannedImagePreview && scannedImagePreview.startsWith('data:image')) {
-        // If we were to upload image and get a URL, it would be set here.
-        // For this example, we'll just use the preview as a placeholder if editing.
-        // dataToSave.imageUrl = "placeholder_url_after_upload"; 
-      } else if (editingItem?.imageUrl) {
+      // Image handling (if direct upload was implemented, this would change)
+      // For this example, imageUrl from scannedPreview or editingItem is used.
+      // If a real image upload service were used, dataToSave.imageUrl would be set to the uploaded image URL.
+      // Currently, we're not persisting the image if it's just a local data URI for scanning.
+      // We only keep existing imageUrls if editing.
+      if (editingItem?.imageUrl) {
         dataToSave.imageUrl = editingItem.imageUrl;
       }
+      // if (scannedImagePreview && scannedImagePreview.startsWith('data:image')) {
+      // This is where you'd handle image upload and get back a URL.
+      // For now, we're not saving the scanned image itself to Firestore as imageUrl
+      // unless it was already there on an `editingItem`.
+      // }
 
-
+      let updatedOrNewItem;
       if (editingItem) {
         await updateArmoryItem(editingItem.id, dataToSave);
-        setArmoryItems(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...dataToSave, id: editingItem.id } : item));
+        const itemTypeName = armoryItemTypes.find(t => t.id === dataToSave.itemTypeId)?.name || "לא ידוע";
+        updatedOrNewItem = { ...editingItem, ...dataToSave, itemTypeName };
+        setArmoryItems(prev => prev.map(item => item.id === editingItem.id ? updatedOrNewItem : item));
         toast({ title: "הצלחה", description: "פרטי הפריט עודכנו." });
       } else {
-        const newItem = await addArmoryItem(dataToSave);
-        setArmoryItems(prev => [...prev, newItem]);
+        const newItemServer = await addArmoryItem(dataToSave); // Returns Omit<ArmoryItem, 'itemTypeName'>
+        const itemTypeName = armoryItemTypes.find(t => t.id === newItemServer.itemTypeId)?.name || "לא ידוע";
+        updatedOrNewItem = { ...newItemServer, itemTypeName };
+        setArmoryItems(prev => [...prev, updatedOrNewItem]);
         toast({ title: "הצלחה", description: "פריט נוסף בהצלחה." });
       }
       setIsItemDialogOpen(false);
       setEditingItem(null);
       itemForm.reset();
       setScannedImagePreview(null);
-      if(fileInputRef.current) fileInputRef.current.value = ""; // Clear file input
+      if(fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת פריט נכשלה." });
     }
@@ -176,90 +237,242 @@ export function ArmoryManagementClient({ initialArmoryItems }: ArmoryManagementC
     setIsItemDialogOpen(true);
   };
 
+  // Item Type Management Handlers
+  const handleAddOrUpdateItemType = async (values: ArmoryItemTypeFormData) => {
+    try {
+      if (editingItemType) {
+        await updateArmoryItemType(editingItemType.id, values);
+        setArmoryItemTypes(prev => 
+          prev.map(t => t.id === editingItemType.id ? { ...t, ...values } : t).sort((a,b) => a.name.localeCompare(b.name))
+        );
+        // Also update itemTypeName in existing armoryItems state
+        setArmoryItems(prevItems => prevItems.map(item => 
+            item.itemTypeId === editingItemType.id ? { ...item, itemTypeName: values.name } : item
+        ));
+        toast({ title: "הצלחה", description: "סוג פריט עודכן." });
+      } else {
+        const newType = await addArmoryItemType(values);
+        setArmoryItemTypes(prev => [...prev, newType].sort((a,b) => a.name.localeCompare(b.name)));
+        toast({ title: "הצלחה", description: "סוג פריט נוסף." });
+      }
+      itemTypeForm.reset();
+      setEditingItemType(null);
+      // Keep dialog open if user wants to add more, or close:
+      // setIsItemTypeDialogOpen(false); 
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "שגיאה", description: error.message || "פעולה נכשלה." });
+    }
+  };
+
+  const handleDeleteItemType = async (typeId: string) => {
+    try {
+      await deleteArmoryItemType(typeId);
+      setArmoryItemTypes(prev => prev.filter(t => t.id !== typeId));
+      toast({ title: "הצלחה", description: "סוג פריט נמחק." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "שגיאה", description: error.message || "מחיקת סוג פריט נכשלה." });
+    }
+  };
+
+  const openEditItemTypeDialog = (itemType: ArmoryItemType) => {
+    setEditingItemType(itemType);
+    itemTypeForm.reset({ name: itemType.name }); // Ensure form is reset with current type
+    // setIsItemTypeDialogOpen(true); // Dialog should already be open
+  };
+
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
         <h1 className="text-3xl font-bold">ניהול נשקייה</h1>
-        <Dialog open={isItemDialogOpen} onOpenChange={(isOpen) => { 
-            setIsItemDialogOpen(isOpen); 
+        <div className="flex gap-2">
+          <Dialog open={isItemTypeDialogOpen} onOpenChange={(isOpen) => {
+            setIsItemTypeDialogOpen(isOpen);
             if (!isOpen) {
-              setEditingItem(null); 
-              setScannedImagePreview(null);
-              if(fileInputRef.current) fileInputRef.current.value = "";
+              setEditingItemType(null);
+              itemTypeForm.reset();
             }
           }}>
-          <DialogTrigger asChild>
-            <Button><PlusCircle className="ms-2 h-4 w-4" /> הוסף פריט</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[525px]">
-            <DialogHeader>
-              <DialogTitle>{editingItem ? "ערוך פריט" : "הוסף פריט חדש"}</DialogTitle>
-              <DialogDescription>
-                {editingItem ? "עדכן את פרטי הפריט." : "מלא את פרטי הפריט. ניתן לסרוק פריט באמצעות המצלמה."}
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={itemForm.handleSubmit(handleAddOrUpdateItem)} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="itemName">שם הפריט</Label>
-                  <Input id="itemName" {...itemForm.register("name")} />
-                  {itemForm.formState.errors.name && <p className="text-destructive text-sm">{itemForm.formState.errors.name.message}</p>}
-                </div>
-                <div>
-                  <Label htmlFor="itemType">סוג הפריט</Label>
-                  <Input id="itemType" {...itemForm.register("type")} />
-                  {itemForm.formState.errors.type && <p className="text-destructive text-sm">{itemForm.formState.errors.type.message}</p>}
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="itemId">מזהה פריט (סריאלי)</Label>
-                <Input id="itemId" {...itemForm.register("itemId")} />
-                {itemForm.formState.errors.itemId && <p className="text-destructive text-sm">{itemForm.formState.errors.itemId.message}</p>}
-              </div>
-              <div>
-                <Label htmlFor="itemDescription">תיאור</Label>
-                <Textarea id="itemDescription" {...itemForm.register("description")} />
-              </div>
-              
-              <div>
-                <Label htmlFor="itemImage">תמונת פריט (לסריקה)</Label>
-                <div className="flex items-center gap-2">
-                  <Input id="itemImage" type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="flex-grow"/>
-                  <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isScanning}>
-                    {isScanning ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                  </Button>
-                </div>
-                {scannedImagePreview && (
-                  <div className="mt-2 border rounded-md p-2 flex justify-center items-center h-32 overflow-hidden">
-                    <Image src={scannedImagePreview} alt="תצוגה מקדימה" width={100} height={100} className="object-contain max-h-full" data-ai-hint="equipment military" />
+            <DialogTrigger asChild>
+              <Button variant="outline"><ListChecks className="ms-2 h-4 w-4" /> נהל סוגי פריט</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>ניהול סוגי פריטים</DialogTitle>
+                <DialogDescription>הוסף, ערוך או מחק סוגי פריטים מהרשימה.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={itemTypeForm.handleSubmit(handleAddOrUpdateItemType)} className="space-y-3">
+                <div className="flex gap-2 items-end">
+                  <div className="flex-grow">
+                    <Label htmlFor="itemTypeNameInput" className="sr-only">שם סוג פריט</Label>
+                    <Input 
+                      id="itemTypeNameInput" 
+                      placeholder={editingItemType ? "ערוך שם סוג פריט" : "הוסף שם סוג פריט חדש"} 
+                      {...itemTypeForm.register("name")} 
+                    />
                   </div>
+                  <Button type="submit" size="sm">
+                    {editingItemType ? "עדכן סוג" : "הוסף סוג"}
+                  </Button>
+                  {editingItemType && (
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditingItemType(null); itemTypeForm.reset(); }}>
+                      בטל עריכה
+                    </Button>
+                  )}
+                </div>
+                {itemTypeForm.formState.errors.name && <p className="text-destructive text-sm">{itemTypeForm.formState.errors.name.message}</p>}
+              </form>
+              <div className="mt-4">
+                <h3 className="text-sm font-medium mb-2">סוגים קיימים:</h3>
+                {armoryItemTypes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">אין סוגי פריטים מוגדרים.</p>
+                ) : (
+                  <ScrollArea className="h-[200px] border rounded-md">
+                    <div className="p-2 space-y-1">
+                    {armoryItemTypes.map((type) => (
+                      <div key={type.id} className="flex justify-between items-center p-2 rounded hover:bg-muted/50">
+                        <span>{type.name}</span>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditItemTypeDialog(type)}>
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-7 w-7"><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  האם אתה בטוח שברצונך למחוק את סוג הפריט "{type.name}"?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>ביטול</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDeleteItemType(type.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </div>
+                    ))}
+                    </div>
+                  </ScrollArea>
                 )}
               </div>
-
-              <DialogFooter>
-                <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
-                <Button type="submit" disabled={isScanning}>
-                  {isScanning ? "סורק..." : (editingItem ? "שמור שינויים" : "הוסף פריט")}
-                </Button>
+              <DialogFooter className="mt-4">
+                <DialogClose asChild><Button variant="outline">סגור</Button></DialogClose>
               </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isItemDialogOpen} onOpenChange={(isOpen) => { 
+              setIsItemDialogOpen(isOpen); 
+              if (!isOpen) {
+                setEditingItem(null); 
+                itemForm.reset();
+                setScannedImagePreview(null);
+                if(fileInputRef.current) fileInputRef.current.value = "";
+              }
+            }}>
+            <DialogTrigger asChild>
+              <Button><PlusCircle className="ms-2 h-4 w-4" /> הוסף פריט</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[525px]">
+              <DialogHeader>
+                <DialogTitle>{editingItem ? "ערוך פריט" : "הוסף פריט חדש"}</DialogTitle>
+                <DialogDescription>
+                  {editingItem ? "עדכן את פרטי הפריט." : "מלא את פרטי הפריט. ניתן לסרוק פריט באמצעות המצלמה."}
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={itemForm.handleSubmit(handleAddOrUpdateItem)} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="itemName">שם הפריט</Label>
+                    <Input id="itemName" {...itemForm.register("name")} />
+                    {itemForm.formState.errors.name && <p className="text-destructive text-sm">{itemForm.formState.errors.name.message}</p>}
+                  </div>
+                  <div>
+                    <Label htmlFor="itemTypeIdSelect">סוג הפריט</Label>
+                    <Controller
+                      name="itemTypeId"
+                      control={itemForm.control}
+                      render={({ field }) => (
+                        <Select onValueChange={field.onChange} value={field.value || ""} defaultValue={field.value || ""}>
+                          <SelectTrigger id="itemTypeIdSelect">
+                            <SelectValue placeholder="בחר סוג פריט..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {armoryItemTypes.map(type => (
+                              <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    {itemForm.formState.errors.itemTypeId && <p className="text-destructive text-sm">{itemForm.formState.errors.itemTypeId.message}</p>}
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="itemId">מזהה פריט (סריאלי)</Label>
+                  <Input id="itemId" {...itemForm.register("itemId")} />
+                  {itemForm.formState.errors.itemId && <p className="text-destructive text-sm">{itemForm.formState.errors.itemId.message}</p>}
+                </div>
+                <div>
+                  <Label htmlFor="itemDescription">תיאור</Label>
+                  <Textarea id="itemDescription" {...itemForm.register("description")} />
+                </div>
+                
+                <div>
+                  <Label htmlFor="itemImage">תמונת פריט (לסריקה)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input id="itemImage" type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="flex-grow"/>
+                    <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isScanning}>
+                      {isScanning ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  {scannedImagePreview && (
+                    <div className="mt-2 border rounded-md p-2 flex justify-center items-center h-32 overflow-hidden">
+                      <Image src={scannedImagePreview} alt="תצוגה מקדימה" width={100} height={100} className="object-contain max-h-full" data-ai-hint="equipment military" />
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter>
+                  <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
+                  <Button type="submit" disabled={isScanning}>
+                    {isScanning ? "סורק..." : (editingItem ? "שמור שינויים" : "הוסף פריט")}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-4 items-center">
         <Input
           type="search"
           placeholder="חפש פריט לפי שם או מזהה..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="max-w-sm"
+          className="max-w-xs"
         />
-        {/* Filter by type can be added here if needed */}
+         <Select value={filterItemTypeId} onValueChange={setFilterItemTypeId}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="סנן לפי סוג..." />
+            </SelectTrigger>
+            <SelectContent>
+                <SelectItem value="all">כל הסוגים</SelectItem>
+                {armoryItemTypes.map(type => (
+                    <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
       </div>
 
       {filteredArmoryItems.length === 0 ? (
-        <p className="text-center text-muted-foreground py-8">לא נמצאו פריטים.</p>
+        <p className="text-center text-muted-foreground py-8">לא נמצאו פריטים התואמים לחיפוש או לסינון.</p>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredArmoryItems.map((item) => (
@@ -275,7 +488,7 @@ export function ArmoryManagementClient({ initialArmoryItems }: ArmoryManagementC
                   </div>
                 )}
                 <CardTitle>{item.name}</CardTitle>
-                <CardDescription>סוג: {item.type}</CardDescription>
+                <CardDescription>סוג: {item.itemTypeName || "לא צוין"}</CardDescription>
               </CardHeader>
               <CardContent className="flex-grow">
                 {item.itemId && <p className="text-sm">מזהה: <span className="font-semibold">{item.itemId}</span></p>}

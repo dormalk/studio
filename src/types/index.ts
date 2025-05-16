@@ -10,11 +10,17 @@ export interface Soldier {
   divisionName?: string; // Optional: for display purposes, denormalized
 }
 
+export interface ArmoryItemType {
+  id: string;
+  name: string;
+}
+
 export interface ArmoryItem {
   id: string; // Firestore document ID
   itemId?: string; // Scanned/manual ID, e.g., serial number
   name: string;
-  type: string; // e.g., "נשק", "אפוד", "קסדה"
+  itemTypeId: string; // Foreign key to ArmoryItemType
+  itemTypeName?: string; // Denormalized for display
   description?: string;
   imageUrl?: string; // URL of the scanned image, if stored
   photoDataUri?: string; // Temporary, for AI scanning
