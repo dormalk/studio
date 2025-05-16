@@ -6,6 +6,11 @@ export interface Division {
   name: string;
 }
 
+export interface DivisionWithDetails extends Division {
+  soldierCount: number;
+  armoryItemCount: number;
+}
+
 export interface SoldierDocument {
   id: string; // Unique ID for this document record (e.g., UUID)
   fileName: string; // Original file name
@@ -18,7 +23,7 @@ export interface SoldierDocument {
 
 export interface Soldier {
   id: string; // Military ID number
-  name: string;
+  name:string;
   divisionId: string;
   divisionName?: string; // Optional: for display purposes, denormalized
   documents?: SoldierDocument[];
@@ -39,4 +44,3 @@ export interface ArmoryItem {
   linkedSoldierId?: string; // Optional: ID of the soldier this item is linked to
   linkedSoldierName?: string; // Optional: Denormalized for display
 }
-
