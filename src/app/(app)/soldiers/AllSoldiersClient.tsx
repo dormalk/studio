@@ -321,17 +321,16 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
         if (result.errorCount > 0) {
           console.error("Import errors:", result.errors); 
-          let errorDescription;
+          let errorDescriptionContent: React.ReactNode;
           if (result.errorCount === 1 && result.errors[0]) {
             const err = result.errors[0];
-            errorDescription = `שגיאה בשורה ${err.rowNumber} (ת.ז: ${err.soldierId || 'לא צוין'}): ${err.reason}`;
+            errorDescriptionContent = `שגיאה בשורה ${err.rowNumber} (ת.ז: ${err.soldierId || 'לא צוין'}): ${err.reason}`;
           } else {
             const firstError = result.errors[0];
-            errorDescription = (
+            errorDescriptionContent = (
               <>
                 {`${result.errorCount} שגיאות בייבוא. `}
                 {firstError ? `שגיאה ראשונה (שורה ${firstError.rowNumber}): ${firstError.reason}. ` : ''}
-                <br />
                 {'נא לבדוק את הקונסולה לפרטים נוספים.'}
               </>
             );
@@ -339,7 +338,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           toast({
             variant: "destructive",
             title: `שגיאות בייבוא (${result.errorCount})`,
-            description: errorDescription,
+            description: errorDescriptionContent,
             duration: result.errorCount === 1 ? 10000 : 15000 
           });
         }
@@ -376,10 +375,10 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
-  const formatDate = (timestamp: Timestamp | Date) => {
-    if (!timestamp) return 'N/A';
-    const date = timestamp instanceof Date ? timestamp : (timestamp as Timestamp).toDate();
-    return date.toLocaleDateString('he-IL');
+  const formatDate = (timestamp: Timestamp | Date | undefined) => {
+    if (!timestamp) return 'לא זמין';
+    const date = timestamp instanceof Date ? timestamp : (timestamp as Timestamp)?.toDate();
+    return date ? date.toLocaleDateString('he-IL') : 'לא זמין';
   }
 
   return (

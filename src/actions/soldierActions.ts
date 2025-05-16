@@ -221,8 +221,8 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
 // Upload a document for a soldier
 export async function uploadSoldierDocument(soldierId: string, formData: FormData): Promise<SoldierDocument> {
   const file = formData.get("file") as File;
-  if (!file) {
-    throw new Error("לא נבחר קובץ.");
+  if (!file || !(file instanceof File) || file.size === 0) {
+    throw new Error("לא נבחר קובץ, או שהקובץ ריק.");
   }
 
   const uniqueFileName = `${uuidv4()}-${file.name}`;
@@ -373,3 +373,4 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   return { successCount, errorCount, errors, addedSoldiers };
 }
+
