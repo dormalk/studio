@@ -1,13 +1,13 @@
 
 "use client";
 
-import type { Soldier, ArmoryItem, SoldierDocument, Division } from "@/types";
+import type { Soldier, ArmoryItem, SoldierDocument, Division, ArmoryItemType } from "@/types";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle } from "lucide-react";
+import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle, Camera, PlusCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Timestamp } from "firebase/firestore";
 import { uploadSoldierDocument, deleteSoldierDocument, updateSoldier } from "@/actions/soldierActions";
+import { addArmoryItem, scanArmoryItemImage } from "@/actions/armoryActions";
 import Link from "next/link";
 import Image from "next/image";
 import { 
@@ -46,6 +47,7 @@ import { getDivisions } from "@/actions/divisionActions";
 interface SoldierDetailClientProps {
   soldier: Soldier;
   initialArmoryItems: ArmoryItem[];
+  initialArmoryItemTypes: ArmoryItemType[]; // Added prop
 }
 
 const soldierDetailsSchema = z.object({
@@ -54,24 +56,43 @@ const soldierDetailsSchema = z.object({
 });
 type SoldierDetailsFormData = z.infer<typeof soldierDetailsSchema>;
 
+const armoryItemSchema = z.object({
+  itemTypeId: z.string().min(1, "יש לבחור סוג פריט"),
+  itemId: z.string().min(1, "מספר סריאלי הינו שדה חובה"),
+  photoDataUri: z.string().optional(),
+});
+type ArmoryItemFormData = z.infer<typeof armoryItemSchema>;
 
-export function SoldierDetailClient({ soldier: initialSoldier, initialArmoryItems }: SoldierDetailClientProps) {
+
+export function SoldierDetailClient({ soldier: initialSoldier, initialArmoryItems, initialArmoryItemTypes }: SoldierDetailClientProps) {
   const [soldier, setSoldier] = useState<Soldier>(initialSoldier);
   const [armoryItems, setArmoryItems] = useState<ArmoryItem[]>(initialArmoryItems);
+  const [allArmoryItemTypes, setAllArmoryItemTypes] = useState<ArmoryItemType[]>(initialArmoryItemTypes);
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const armoryItemFileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const [isEditSoldierDialogOpen, setIsEditSoldierDialogOpen] = useState(false);
+  const [isAddArmoryItemDialogOpen, setIsAddArmoryItemDialogOpen] = useState(false);
   const [allDivisions, setAllDivisions] = useState<Division[]>([]);
+
+  const [isScanningArmoryItem, setIsScanningArmoryItem] = useState(false);
+  const [scannedArmoryImagePreview, setScannedArmoryImagePreview] = useState<string | null>(null);
 
   const soldierDetailsForm = useForm<SoldierDetailsFormData>({
     resolver: zodResolver(soldierDetailsSchema),
     defaultValues: {
-      name: soldier.name,
-      divisionId: soldier.divisionId,
+      name: initialSoldier.name,
+      divisionId: initialSoldier.divisionId,
     },
+  });
+
+  const addArmoryItemForm = useForm<ArmoryItemFormData>({
+    resolver: zodResolver(armoryItemSchema),
+    defaultValues: { itemTypeId: "", itemId: "" },
   });
 
   useEffect(() => {
@@ -85,20 +106,32 @@ export function SoldierDetailClient({ soldier: initialSoldier, initialArmoryItem
   useEffect(() => {
     setArmoryItems(initialArmoryItems);
   }, [initialArmoryItems]);
+  
+  useEffect(() => {
+    setAllArmoryItemTypes(initialArmoryItemTypes.sort((a,b) => a.name.localeCompare(b.name)));
+  }, [initialArmoryItemTypes]);
 
   useEffect(() => {
-    async function fetchDivisions() {
-        try {
-            const divisions = await getDivisions();
-            setAllDivisions(divisions.sort((a,b) => a.name.localeCompare(b.name)));
-        } catch (error) {
-            toast({ variant: "destructive", title: "שגיאה", description: "טעינת רשימת הפלוגות נכשלה." });
+    async function fetchDivisionsData() {
+        if (isEditSoldierDialogOpen) {
+            try {
+                const divisions = await getDivisions();
+                setAllDivisions(divisions.sort((a,b) => a.name.localeCompare(b.name)));
+            } catch (error) {
+                toast({ variant: "destructive", title: "שגיאה", description: "טעינת רשימת הפלוגות נכשלה." });
+            }
         }
     }
-    if (isEditSoldierDialogOpen) {
-        fetchDivisions();
-    }
+    fetchDivisionsData();
   }, [isEditSoldierDialogOpen, toast]);
+
+  useEffect(() => {
+    if (!isAddArmoryItemDialogOpen) {
+      addArmoryItemForm.reset({ itemTypeId: "", itemId: "" });
+      setScannedArmoryImagePreview(null);
+      if (armoryItemFileInputRef.current) armoryItemFileInputRef.current.value = "";
+    }
+  }, [isAddArmoryItemDialogOpen, addArmoryItemForm]);
 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -114,7 +147,7 @@ export function SoldierDetailClient({ soldier: initialSoldier, initialArmoryItem
     try {
       const newDocument = await uploadSoldierDocument(soldier.id, formData);
       setSoldier(prev => {
-        if (!prev) return prev; // Should not happen
+        if (!prev) return prev; 
         const updatedDocs = [...(prev.documents || []), newDocument];
         return { ...prev, documents: updatedDocs };
       });
@@ -133,7 +166,7 @@ export function SoldierDetailClient({ soldier: initialSoldier, initialArmoryItem
     try {
       await deleteSoldierDocument(soldier.id, documentId, storagePath);
       const updatedDocs = soldier.documents?.filter(doc => doc.id !== documentId);
-      setSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null); // prev should always exist
+      setSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null); 
       toast({ title: "הצלחה", description: "המסמך נמחק." });
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
@@ -156,6 +189,69 @@ export function SoldierDetailClient({ soldier: initialSoldier, initialArmoryItem
         toast({ variant: "destructive", title: "שגיאה", description: error.message || "עדכון פרטי חייל נכשל." });
     }
   };
+
+  const handleArmoryItemFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setIsScanningArmoryItem(true);
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const dataUri = reader.result as string;
+        setScannedArmoryImagePreview(dataUri);
+        addArmoryItemForm.setValue("photoDataUri", dataUri);
+        try {
+          const result = await scanArmoryItemImage(dataUri);
+          addArmoryItemForm.setValue("itemId", result.itemId);
+
+          const matchedType = allArmoryItemTypes.find(type => type.name.toLowerCase() === result.itemType.toLowerCase());
+          if (matchedType) {
+            addArmoryItemForm.setValue("itemTypeId", matchedType.id);
+            toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}, מספר סריאלי: ${result.itemId}` });
+          } else {
+             toast({ variant: "default", title: "סריקה - נדרשת פעולה", description: `מספר סריאלי זוהה: ${result.itemId}. סוג פריט '${result.itemType}' לא נמצא ברשימה. אנא בחר סוג קיים.` });
+          }
+        } catch (error: any) {
+          toast({ variant: "destructive", title: "שגיאת סריקה", description: error.message || "זיהוי הפריט נכשל." });
+        } finally {
+          setIsScanningArmoryItem(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAddNewArmoryItem = async (values: ArmoryItemFormData) => {
+    try {
+      const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'createdAt'> & { imageUrl?: string } = {
+        itemTypeId: values.itemTypeId,
+        itemId: values.itemId,
+        linkedSoldierId: soldier.id, // Link to current soldier
+        // imageUrl will be handled if Genkit provides it or if placeholder logic is added later
+      };
+
+      const newItemServer = await addArmoryItem(dataToSave);
+      const itemTypeName = allArmoryItemTypes.find(t => t.id === dataToSave.itemTypeId)?.name || "לא ידוע";
+      
+      const newItemForState: ArmoryItem = {
+        ...newItemServer,
+        itemTypeName,
+        linkedSoldierName: soldier.name,
+        imageUrl: dataToSave.imageUrl // This might be undefined if not set by scan
+      };
+      
+      setArmoryItems(prev => [...prev, newItemForState]);
+      toast({ title: "הצלחה", description: "פריט נשקייה נוסף ושויך לחייל." });
+      
+      setIsAddArmoryItemDialogOpen(false);
+      addArmoryItemForm.reset();
+      setScannedArmoryImagePreview(null);
+      if (armoryItemFileInputRef.current) armoryItemFileInputRef.current.value = "";
+
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת פריט נשקייה נכשלה." });
+    }
+  };
+
 
   const formatFileSize = (bytes: number, decimals = 2) => {
     if (bytes === 0) return '0 Bytes';
@@ -312,9 +408,73 @@ export function SoldierDetailClient({ soldier: initialSoldier, initialArmoryItem
 
       {/* Linked Armory Items Card */}
       <Card className="md:col-span-3">
-        <CardHeader>
-          <CardTitle>פריטי נשקייה משויכים ({armoryItems.length})</CardTitle>
-          <CardDescription>רשימת פריטי הציוד מהנשקייה המשויכים לחייל זה.</CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+                <CardTitle>פריטי נשקייה משויכים ({armoryItems.length})</CardTitle>
+                <CardDescription>רשימת פריטי הציוד מהנשקייה המשויכים לחייל זה.</CardDescription>
+            </div>
+            <Dialog open={isAddArmoryItemDialogOpen} onOpenChange={setIsAddArmoryItemDialogOpen}>
+                <DialogTrigger asChild>
+                    <Button><PlusCircle className="ms-2 h-4 w-4" /> הוסף פריט נשקייה</Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[525px]">
+                    <DialogHeader>
+                        <DialogTitle>הוסף פריט נשקייה לחייל</DialogTitle>
+                        <DialogDescription>מלא את פרטי הפריט. הוא ישויך אוטומטית לחייל {soldier.name}.</DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={addArmoryItemForm.handleSubmit(handleAddNewArmoryItem)} className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <Label htmlFor="armoryItemTypeIdSelect">סוג הפריט</Label>
+                                <Controller
+                                name="itemTypeId"
+                                control={addArmoryItemForm.control}
+                                render={({ field }) => (
+                                    <Select onValueChange={field.onChange} value={field.value || ""} defaultValue={field.value || ""}>
+                                    <SelectTrigger id="armoryItemTypeIdSelect">
+                                        <SelectValue placeholder="בחר סוג פריט..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {allArmoryItemTypes.map(type => (
+                                        <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                    </Select>
+                                )}
+                                />
+                                {addArmoryItemForm.formState.errors.itemTypeId && <p className="text-destructive text-sm">{addArmoryItemForm.formState.errors.itemTypeId.message}</p>}
+                            </div>
+                            <div>
+                                <Label htmlFor="armoryItemId">מספר סריאלי</Label>
+                                <Input id="armoryItemId" {...addArmoryItemForm.register("itemId")} />
+                                {addArmoryItemForm.formState.errors.itemId && <p className="text-destructive text-sm">{addArmoryItemForm.formState.errors.itemId.message}</p>}
+                            </div>
+                        </div>
+                         <div>
+                            <Label htmlFor="armoryItemImage">תמונת פריט (לסריקה)</Label>
+                            <div className="flex items-center gap-2">
+                            <Input id="armoryItemImage" type="file" accept="image/*" ref={armoryItemFileInputRef} onChange={handleArmoryItemFileChange} className="flex-grow"/>
+                            <Button type="button" variant="outline" size="icon" onClick={() => armoryItemFileInputRef.current?.click()} disabled={isScanningArmoryItem}>
+                                {isScanningArmoryItem ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                            </Button>
+                            </div>
+                        </div>
+                                        
+                        {scannedArmoryImagePreview && (
+                        <div className="mt-2 border rounded-md p-2 flex justify-center items-center h-32 overflow-hidden">
+                            <Image src={scannedArmoryImagePreview} alt="תצוגה מקדימה" width={100} height={100} className="object-contain max-h-full" data-ai-hint="equipment military"/>
+                        </div>
+                        )}
+
+                        <DialogFooter>
+                        <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
+                        <Button type="submit" disabled={isScanningArmoryItem}>
+                            {isScanningArmoryItem ? "סורק..." : "הוסף פריט"}
+                        </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </CardHeader>
         <CardContent>
           {armoryItems.length === 0 ? (
@@ -326,7 +486,7 @@ export function SoldierDetailClient({ soldier: initialSoldier, initialArmoryItem
                   <CardHeader className="pb-2">
                      {item.imageUrl ? (
                         <div className="relative h-32 w-full mb-2 rounded-md overflow-hidden">
-                            <Image src={item.imageUrl} alt={item.itemTypeName || "Armory Item"} layout="fill" objectFit="cover" data-ai-hint="equipment military" />
+                            <Image src={item.imageUrl} alt={item.itemTypeName || "Armory Item"} layout="fill" objectFit="cover" data-ai-hint="equipment military"/>
                         </div>
                         ) : (
                         <div className="flex items-center justify-center h-32 w-full mb-2 rounded-md bg-muted">
@@ -338,7 +498,8 @@ export function SoldierDetailClient({ soldier: initialSoldier, initialArmoryItem
                   </CardHeader>
                   <CardFooter>
                     <Button variant="outline" size="sm" asChild className="w-full">
-                      <Link href={`/armory?itemId=${item.id}`}> {/* Or direct to item edit if available */}
+                      {/* Link could go to armory page filtered by item.id or an edit item dialog */}
+                      <Link href={`/armory?itemId=${item.id}`}> 
                         פרטי פריט בנשקייה
                       </Link>
                     </Button>

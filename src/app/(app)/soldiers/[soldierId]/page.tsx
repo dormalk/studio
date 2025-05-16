@@ -1,6 +1,6 @@
 
 import { getSoldierById } from "@/actions/soldierActions";
-import { getArmoryItemsBySoldierId } from "@/actions/armoryActions";
+import { getArmoryItemsBySoldierId, getArmoryItemTypes } from "@/actions/armoryActions"; // Added getArmoryItemTypes
 import { SoldierDetailClient } from "./SoldierDetailClient";
 import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,13 +20,29 @@ interface SoldierPageProps {
 export default async function SoldierPage({ params }: SoldierPageProps) {
   const { soldierId } = params;
   
-  const soldier = await getSoldierById(soldierId);
+  const soldierData = getSoldierById(soldierId);
+  const linkedArmoryItemsData = getArmoryItemsBySoldierId(soldierId);
+  const armoryItemTypesData = getArmoryItemTypes(); // Fetch armory item types
+
+  const [soldier, linkedArmoryItems, armoryItemTypes] = await Promise.all([
+    soldierData,
+    linkedArmoryItemsData,
+    armoryItemTypesData
+  ]);
   
   if (!soldier) {
     notFound();
   }
   
-  const linkedArmoryItems = await getArmoryItemsBySoldierId(soldierId);
+  // Enrich armory items with item type names if not already present
+  // This might be redundant if getArmoryItemsBySoldierId already does this, but good for safety.
+  const enrichedLinkedArmoryItems = linkedArmoryItems.map(item => {
+    if (!item.itemTypeName) {
+      const type = armoryItemTypes.find(t => t.id === item.itemTypeId);
+      return { ...item, itemTypeName: type ? type.name : "סוג לא ידוע" };
+    }
+    return item;
+  });
   
   return (
     <div className="container mx-auto py-8 space-y-8">
@@ -40,7 +56,11 @@ export default async function SoldierPage({ params }: SoldierPageProps) {
         </Button>
       </div>
       
-      <SoldierDetailClient soldier={soldier} initialArmoryItems={linkedArmoryItems} />
+      <SoldierDetailClient 
+        soldier={soldier} 
+        initialArmoryItems={enrichedLinkedArmoryItems} 
+        initialArmoryItemTypes={armoryItemTypes} // Pass item types to client
+      />
     </div>
   );
 }
