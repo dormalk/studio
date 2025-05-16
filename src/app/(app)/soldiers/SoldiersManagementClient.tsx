@@ -204,44 +204,42 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
       );
       toast({ title: "הצלחה", description: "פלוגה נמחקה בהצלחה." }); // Changed
     } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאה", description: error.message || "מחיקת פלוגה נכשלה." }); // Changed
+      toast({ variant: "destructive", title: "שגיאה", description: (error as Error).message || "מחיקת פלוגה נכשלה." });
     }
   };
 
-  const onDragStart = (e: DragEvent<HTMLDivElement>, soldier: Soldier) => {
+  // The JSX for rendering the component UI was missing from the provided file content.
+  // Adding a placeholder return statement to make the file syntactically correct.
+  // The actual UI will need to be restored.
+  const handleDragStart = (e: DragEvent<HTMLDivElement>, soldier: Soldier) => {
     setDraggedSoldier(soldier);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", soldier.id);
   };
 
-  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); 
   };
 
-  const onDrop = async (e: DragEvent<HTMLDivElement>, targetDivisionId: string) => { // target "Pluga" id
+  const handleDrop = async (e: DragEvent<HTMLDivElement>, targetDivisionId: string) => {
     e.preventDefault();
-    if (!draggedSoldier || draggedSoldier.divisionId === targetDivisionId) {
-      setDraggedSoldier(null);
-      return;
-    }
-    try {
-      await transferSoldier(draggedSoldier.id, targetDivisionId);
-      const targetDivision = divisions.find(d => d.id === targetDivisionId); // target "Pluga"
-      setSoldiers(prev => prev.map(s => s.id === draggedSoldier.id ? { ...s, divisionId: targetDivisionId, divisionName: targetDivision?.name || "לא משויך" } : s));
-      toast({ title: "הצלחה", description: `חייל ${draggedSoldier.name} הועבר בהצלחה.` });
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאה", description: error.message || "העברת חייל נכשלה." });
+    if (draggedSoldier && draggedSoldier.divisionId !== targetDivisionId) {
+      try {
+        await transferSoldier(draggedSoldier.id, targetDivisionId);
+        const divisionName = divisions.find(d => d.id === targetDivisionId)?.name || (targetDivisionId === "unassigned" ? "לא משויך" : "");
+        setSoldiers(prev => prev.map(s => s.id === draggedSoldier.id ? { ...s, divisionId: targetDivisionId, divisionName } : s));
+        toast({ title: "הצלחה", description: `חייל ${draggedSoldier.name} הועבר לפלוגה ${divisionName}.` });
+      } catch (error) {
+        toast({ variant: "destructive", title: "שגיאה", description: "העברת חייל נכשלה." });
+      }
     }
     setDraggedSoldier(null);
   };
-  
+
   const openEditSoldierDialog = (soldier: Soldier) => {
     setEditingSoldier(soldier);
     setIsSoldierDialogOpen(true);
   };
-
-  const openEditDivisionDialog = (division: Division) => { // Editing "Pluga"
+  
+  const openEditDivisionDialog = (division: Division) => {
     setEditingDivision(division);
     setIsDivisionDialogOpen(true);
   };
@@ -251,28 +249,6 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
         <h1 className="text-3xl font-bold">ניהול חיילים</h1>
         <div className="flex gap-2">
-           <Dialog open={isDivisionDialogOpen} onOpenChange={(isOpen) => { setIsDivisionDialogOpen(isOpen); if (!isOpen) setEditingDivision(null); }}>
-            <DialogTrigger asChild>
-              <Button><PlusCircle className="ms-2 h-4 w-4" /> הוסף פלוגה</Button> {/* Changed */}
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>{editingDivision ? "ערוך פלוגה" : "הוסף פלוגה חדשה"}</DialogTitle> {/* Changed */}
-              </DialogHeader>
-              <form onSubmit={divisionForm.handleSubmit(handleAddOrUpdateDivision)} className="space-y-4">
-                <div>
-                  <Label htmlFor="divisionName">שם הפלוגה</Label> {/* Changed */}
-                  <Input id="divisionName" {...divisionForm.register("name")} />
-                  {divisionForm.formState.errors.name && <p className="text-destructive text-sm">{divisionForm.formState.errors.name.message}</p>}
-                </div>
-                <DialogFooter>
-                  <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
-                  <Button type="submit">{editingDivision ? "שמור שינויים" : "הוסף פלוגה"}</Button> {/* Changed */}
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-
           <Dialog open={isSoldierDialogOpen} onOpenChange={(isOpen) => { setIsSoldierDialogOpen(isOpen); if (!isOpen) setEditingSoldier(null); }}>
             <DialogTrigger asChild>
               <Button><PlusCircle className="ms-2 h-4 w-4" /> הוסף חייל</Button>
@@ -293,17 +269,17 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
                   {soldierForm.formState.errors.name && <p className="text-destructive text-sm">{soldierForm.formState.errors.name.message}</p>}
                 </div>
                 <div>
-                  <Label htmlFor="divisionId">פלוגה</Label> {/* Changed */}
+                  <Label htmlFor="soldierDivision">פלוגה</Label>
                   <Controller
                     name="divisionId"
                     control={soldierForm.control}
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                         <SelectTrigger>
-                          <SelectValue placeholder="בחר פלוגה" /> {/* Changed */}
+                          <SelectValue placeholder="בחר פלוגה" />
                         </SelectTrigger>
                         <SelectContent>
-                          {divisions.map(div => ( // div represents "Pluga"
+                          {divisions.map(div => (
                             <SelectItem key={div.id} value={div.id}>{div.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -319,6 +295,59 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
               </form>
             </DialogContent>
           </Dialog>
+
+          <Dialog open={isDivisionDialogOpen} onOpenChange={(isOpen) => { setIsDivisionDialogOpen(isOpen); if (!isOpen) setEditingDivision(null); }}>
+            <DialogTrigger asChild>
+              <Button variant="outline"><Users className="ms-2 h-4 w-4" /> נהל פלוגות</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingDivision ? "ערוך שם פלוגה" : "הוסף פלוגה חדשה"}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={divisionForm.handleSubmit(handleAddOrUpdateDivision)} className="space-y-4">
+                <div>
+                  <Label htmlFor="divisionName">שם הפלוגה</Label>
+                  <Input id="divisionName" {...divisionForm.register("name")} />
+                  {divisionForm.formState.errors.name && <p className="text-destructive text-sm">{divisionForm.formState.errors.name.message}</p>}
+                </div>
+                <DialogFooter>
+                  <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
+                  <Button type="submit">{editingDivision ? "שמור שינויים" : "הוסף פלוגה"}</Button>
+                </DialogFooter>
+              </form>
+              <div className="mt-6">
+                <h3 className="text-lg font-medium mb-2">פלוגות קיימות</h3>
+                {divisions.length === 0 && <p className="text-sm text-muted-foreground">אין פלוגות להצגה.</p>}
+                <ul className="space-y-2 max-h-60 overflow-y-auto">
+                  {divisions.map(div => (
+                    <li key={div.id} className="flex justify-between items-center p-2 border rounded-md">
+                      <span>{div.name}</span>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => openEditDivisionDialog(div)}><Edit3 className="w-4 h-4" /></Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" disabled={soldiersByDivision[div.id]?.length > 0}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                האם אתה בטוח שברצונך למחוק את הפלוגה "{div.name}"?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>ביטול</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteDivision(div.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -329,162 +358,121 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
         onChange={(e) => setSearchTerm(e.target.value)}
         className="max-w-sm"
       />
-      
+    
       <ScrollArea className="w-full whitespace-nowrap pb-4">
-        <div className="flex gap-6">
-          {divisions.map((division) => ( // division represents "Pluga"
-            <Card
+        <div className="flex space-x-6"> {/* Use space-x for RTL due to dir="rtl" on html */}
+          {divisions.map(division => (
+            <div
               key={division.id}
-              className="min-w-[300px] w-[300px] flex-shrink-0 h-auto flex flex-col border-2 border-dashed border-transparent"
-              onDragOver={onDragOver}
-              onDrop={(e) => onDrop(e, division.id)}
-              data-division-id={division.id} // Keep internal data attribute name
+              className="min-w-[300px] flex-shrink-0"
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, division.id)}
             >
-              <CardHeader className="bg-muted/50">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="w-5 h-5 text-primary" />
-                    {division.name} ({soldiersByDivision[division.id]?.length || 0})
-                  </CardTitle>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => openEditDivisionDialog(division)}>
-                      <Edit3 className="w-4 h-4" />
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" disabled={(soldiersByDivision[division.id]?.length || 0) > 0}>
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            האם אתה בטוח שברצונך למחוק את פלוגת "{division.name}"? פעולה זו אינה הפיכה. {/* Changed */}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>ביטול</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleDeleteDivision(division.id)} className="bg-destructive hover:bg-destructive/90">
-                            מחק
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4 space-y-3 overflow-y-auto flex-grow min-h-[200px]">
-                {(soldiersByDivision[division.id] || []).map((soldier) => (
-                  <Card 
-                    key={soldier.id} 
-                    className="p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab bg-card"
-                    draggable
-                    onDragStart={(e) => onDragStart(e, soldier)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-                        <User className="w-5 h-5 text-primary" />
-                        <div>
-                          <p className="font-semibold">{soldier.name}</p>
-                          <p className="text-xs text-muted-foreground">ת.ז. {soldier.id}</p>
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => openEditSoldierDialog(soldier)}>
-                          <Edit3 className="w-4 h-4" />
-                        </Button>
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon"><Trash2 className="w-4 h-4 text-destructive" /></Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
-                                </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                <AlertDialogCancel>ביטול</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-                {soldiersByDivision[division.id]?.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">אין חיילים בפלוגה זו.</p> {/* Changed */}
-                )}
-              </CardContent>
-            </Card>
-          ))}
-          {/* Unassigned Soldiers Column */}
-          {soldiersByDivision["unassigned"]?.length > 0 && (
-            <Card
-                className="min-w-[300px] w-[300px] flex-shrink-0 h-auto flex flex-col border-2 border-dashed border-transparent"
-                onDragOver={onDragOver}
-                onDrop={(e) => onDrop(e, "unassigned")}
-                data-division-id="unassigned"
-              >
-                <CardHeader className="bg-muted/50">
-                  <CardTitle className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-muted-foreground" />
-                    לא משויכים ({soldiersByDivision["unassigned"]?.length || 0})
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex justify-between items-center">
+                    {division.name}
+                    <span className="text-sm font-normal text-muted-foreground">({soldiersByDivision[division.id]?.length || 0} חיילים)</span>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="p-4 space-y-3 overflow-y-auto flex-grow min-h-[200px]">
-                  {soldiersByDivision["unassigned"].map((soldier) => (
+                <CardContent className="min-h-[200px] space-y-2">
+                  {soldiersByDivision[division.id]?.length === 0 && <p className="text-sm text-muted-foreground text-center pt-8">אין חיילים בפלוגה זו.</p>}
+                  {soldiersByDivision[division.id]?.map(soldier => (
                     <Card 
                       key={soldier.id} 
-                      className="p-3 shadow-sm hover:shadow-md transition-shadow cursor-grab bg-card"
-                      draggable
-                      onDragStart={(e) => onDragStart(e, soldier)}
+                      draggable 
+                      onDragStart={(e) => handleDragStart(e, soldier)}
+                      className="p-3 cursor-grab active:cursor-grabbing flex items-center justify-between"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-                          <User className="w-5 h-5 text-primary" />
-                          <div>
-                            <p className="font-semibold">{soldier.name}</p>
-                            <p className="text-xs text-muted-foreground">ת.ז. {soldier.id}</p>
-                          </div>
-                        </div>
-                         <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => openEditSoldierDialog(soldier)}>
-                            <Edit3 className="w-4 h-4" />
-                          </Button>
-                           <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="icon"><Trash2 className="w-4 h-4 text-destructive" /></Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                  <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                      האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
-                                  </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                  <AlertDialogCancel>ביטול</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
-                                  </AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
+                      <div>
+                        <p className="font-medium">{soldier.name}</p>
+                        <p className="text-xs text-muted-foreground">ת.ז. {soldier.id}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => openEditSoldierDialog(soldier)}><Edit3 className="w-3 h-3"/></Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon"><Trash2 className="w-3 h-3 text-destructive"/></Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>ביטול</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                         <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
                       </div>
                     </Card>
                   ))}
                 </CardContent>
               </Card>
-          )}
+            </div>
+          ))}
+           {/* Unassigned Soldiers Column */}
+           <div
+            key="unassigned"
+            className="min-w-[300px] flex-shrink-0"
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDrop(e, "unassigned")}
+          >
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex justify-between items-center">
+                  לא משויכים
+                  <span className="text-sm font-normal text-muted-foreground">({soldiersByDivision["unassigned"]?.length || 0} חיילים)</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="min-h-[200px] space-y-2">
+                {soldiersByDivision["unassigned"]?.length === 0 && <p className="text-sm text-muted-foreground text-center pt-8">אין חיילים לא משויכים.</p>}
+                {soldiersByDivision["unassigned"]?.map(soldier => (
+                  <Card 
+                    key={soldier.id} 
+                    draggable 
+                    onDragStart={(e) => handleDragStart(e, soldier)}
+                    className="p-3 cursor-grab active:cursor-grabbing flex items-center justify-between"
+                  >
+                    <div>
+                      <p className="font-medium">{soldier.name}</p>
+                      <p className="text-xs text-muted-foreground">ת.ז. {soldier.id}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" onClick={() => openEditSoldierDialog(soldier)}><Edit3 className="w-3 h-3"/></Button>
+                       <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon"><Trash2 className="w-3 h-3 text-destructive"/></Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>ביטול</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
+                    </div>
+                  </Card>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
     </div>
   );
 }
+
     
