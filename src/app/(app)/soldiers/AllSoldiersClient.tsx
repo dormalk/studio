@@ -130,16 +130,17 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         await updateSoldier(editingSoldier.id, {name: values.name, divisionId: values.divisionId});
          updatedOrNewSoldier = { 
             ...editingSoldier, 
-            ...values, 
+            name: values.name,
+            divisionId: values.divisionId,
             divisionName,
         };
         setSoldiers(prev => prev.map(s => s.id === updatedOrNewSoldier!.id ? updatedOrNewSoldier! : s));
         toast({ title: "הצלחה", description: "פרטי החייל עודכנו." });
       } else {
         const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
+        // newSoldierServerData already includes enriched divisionName
         updatedOrNewSoldier = { 
-            ...newSoldierServerData, 
-            divisionName,
+            ...newSoldierServerData,
             documents: [] 
         };
         setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
@@ -173,11 +174,18 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSelectedFile(event.target.files?.[0] || null);
+    if (event.target.files && event.target.files.length > 0) {
+        setSelectedFile(event.target.files[0]);
+    } else {
+        setSelectedFile(null);
+    }
   };
 
   const handleDocumentUpload = async () => {
-    if (!selectedFile || !editingSoldier) return;
+    if (!selectedFile || !editingSoldier) {
+        toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור חייל וקובץ להעלאה."});
+        return;
+    }
     setIsUploading(true);
     const formData = new FormData();
     formData.append("file", selectedFile);
@@ -222,7 +230,11 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   };
 
   const handleImportFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setImportFile(event.target.files?.[0] || null);
+    if (event.target.files && event.target.files.length > 0) {
+        setImportFile(event.target.files[0]);
+    } else {
+        setImportFile(null);
+    }
   };
 
   const handleProcessImport = async () => {
@@ -249,8 +261,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           defval: '', 
         }) as Array<any[]>;
 
-        if (!jsonDataRaw || jsonDataRaw.length === 0) {
-          toast({ variant: "destructive", title: "שגיאה", description: "הקובץ ריק או שאינו בפורמט Excel תקין." });
+        if (!jsonDataRaw || jsonDataRaw.length < 1) { // Need at least a header row
+          toast({ variant: "destructive", title: "שגיאה", description: "הקובץ ריק או שאינו בפורמט Excel תקין (נדרשת שורת כותרות לפחות)." });
           setIsImporting(false);
           return;
         }
@@ -282,7 +294,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         
         const dataRows = jsonDataRaw.slice(1);
         if (dataRows.length === 0) {
-            toast({ variant: "destructive", title: "שגיאה", description: "לא נמצאו שורות נתונים לייבוא בקובץ (לאחר שורת הכותרות)." });
+            toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים לייבוא בקובץ (לאחר שורת הכותרות)." });
             setIsImporting(false);
             return;
         }
@@ -296,7 +308,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           .filter(soldier => soldier.id && soldier.name && soldier.divisionName); 
 
         if (soldiersToImport.length === 0) {
-            toast({ variant: "destructive", title: "שגיאה", description: "לא נמצאו שורות נתונים תקינות (עם כל השדות הנדרשים) לייבוא בקובץ. ודא שכל שורה מכילה ערכים עבור 'שם החייל', 'מספר אישי', ו'שם הפלוגה'." });
+            toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים תקינות (עם כל השדות הנדרשים) לייבוא בקובץ. ודא שכל שורה מכילה ערכים עבור 'שם החייל', 'מספר אישי', ו'שם הפלוגה'." });
             setIsImporting(false);
             return;
         }
@@ -304,15 +316,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const result: ImportResult = await importSoldiers(soldiersToImport);
 
         if (result.successCount > 0) {
-          const newlyAddedSoldiers: Soldier[] = result.addedSoldiers.map(s => {
-            const division = divisions.find(d => d.id === s.divisionId);
-            return {
-              ...s,
-              divisionName: division ? division.name : "לא משויך",
-              documents: [] 
-            };
-          });
-          setSoldiers(prev => [...prev, ...newlyAddedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
+          // Server action addSoldier already enriches with divisionName
+          setSoldiers(prev => [...prev, ...result.addedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
           toast({
             title: "ייבוא הושלם",
             description: `${result.successCount} חיילים נוספו בהצלחה.`,
@@ -324,14 +329,14 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           let errorDescriptionContent: React.ReactNode;
           if (result.errorCount === 1 && result.errors[0]) {
             const err = result.errors[0];
-            errorDescriptionContent = `שגיאה בשורה ${err.rowNumber} (ת.ז: ${err.soldierId || 'לא צוין'}): ${err.reason}`;
+            errorDescriptionContent = `שגיאה בשורה ${err.rowNumber} (ת.ז: ${err.soldierId || 'לא צוין'}, שם: ${err.soldierName || 'לא צוין'}): ${err.reason}`;
           } else {
             const firstError = result.errors[0];
             errorDescriptionContent = (
               <>
                 {`${result.errorCount} שגיאות בייבוא. `}
-                {firstError ? `שגיאה ראשונה (שורה ${firstError.rowNumber}): ${firstError.reason}. ` : ''}
-                {'נא לבדוק את הקונסולה לפרטים נוספים.'}
+                {firstError ? `שגיאה ראשונה (שורה ${firstError.rowNumber}, ת.ז: ${firstError.soldierId || 'לא צוין'}): ${firstError.reason}. ` : ''}
+                {'נא לבדוק את הקונסולה לפרטים נוספים על כל השגיאות.'}
               </>
             );
           }
@@ -343,12 +348,9 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           });
         }
         
-        if (result.successCount === 0 && result.errorCount === 0 && dataRows.length > 0 && soldiersToImport.length > 0) {
-             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ (ייתכן שכולם כבר קיימים או שחלק מהשורות היו חסרות נתונים הכרחיים)." });
-        } else if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length === 0 && dataRows.length > 0) {
-            // This case is already covered by the check `if (soldiersToImport.length === 0)`
+        if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length > 0) {
+             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ (ייתכן שכולם כבר קיימים או שהשורות לא הכילו את כל הנתונים הנדרשים)." });
         }
-
 
         setImportFile(null);
         if (importFileInputRef.current) importFileInputRef.current.value = "";
@@ -377,7 +379,12 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
   const formatDate = (timestamp: Timestamp | Date | undefined) => {
     if (!timestamp) return 'לא זמין';
-    const date = timestamp instanceof Date ? timestamp : (timestamp as Timestamp)?.toDate();
+    let date: Date | null = null;
+    if (timestamp instanceof Date) {
+        date = timestamp;
+    } else if (timestamp && typeof (timestamp as Timestamp).toDate === 'function') {
+        date = (timestamp as Timestamp).toDate();
+    }
     return date ? date.toLocaleDateString('he-IL') : 'לא זמין';
   }
 
@@ -401,13 +408,13 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                         <DialogTitle>ייבוא חיילים מקובץ Excel</DialogTitle>
                         <DialogDescription>
                             בחר קובץ Excel (.xlsx, .xls) לייבוא.
-                            הקובץ צריך להכיל את העמודות הבאות, עם כותרות בשורה הראשונה (סדר העמודות אינו משנה):
-                            <ul className="list-disc list-inside my-2">
-                                <li>שם החייל</li>
-                                <li>מספר אישי</li>
-                                <li>שם הפלוגה</li>
+                            השורה הראשונה בקובץ חייבת להכיל את הכותרות הבאות (סדר העמודות אינו משנה):
+                            <ul className="list-disc list-inside my-2 text-sm">
+                                <li className="font-semibold">שם החייל</li>
+                                <li className="font-semibold">מספר אישי</li>
+                                <li className="font-semibold">שם הפלוגה</li>
                             </ul>
-                            ודא שהכותרות תואמות בדיוק לשמות אלו.
+                            ודא שהכותרות תואמות בדיוק לשמות אלו. המערכת תחפש פלוגות קיימות לפי השם שצוין.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
@@ -646,5 +653,3 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
-
-    

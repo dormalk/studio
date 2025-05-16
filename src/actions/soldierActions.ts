@@ -26,7 +26,7 @@ import {
 } from "firebase/storage";
 import { revalidatePath } from "next/cache";
 import { v4 as uuidv4 } from 'uuid';
-import { getDivisions } from "./divisionActions"; // For import
+import { getDivisions } from "./divisionActions"; 
 
 const soldiersCollection = collection(db, "soldiers");
 const divisionsCollection = collection(db, "divisions");
@@ -46,7 +46,17 @@ export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'do
     };
     await setDoc(soldierDocRef, newSoldierData);
     revalidatePath("/soldiers");
-    return { ...newSoldierData, divisionName: "לא משויך" }; // divisionName will be enriched on client or by getSoldiers
+    revalidatePath(`/divisions/${soldierData.divisionId}`);
+    
+    let divisionName = "לא משויך";
+    if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
+        const divisionDoc = await getDoc(doc(db, "divisions", soldierData.divisionId));
+        if (divisionDoc.exists()) {
+            divisionName = (divisionDoc.data() as Division).name;
+        }
+    }
+
+    return { ...newSoldierData, divisionName };
   } catch (error) {
     console.error("Error adding soldier: ", error);
     if (error instanceof Error) throw error;
@@ -57,12 +67,20 @@ export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'do
 // Get all soldiers
 export async function getSoldiers(): Promise<Soldier[]> {
   try {
-    const querySnapshot = await getDocs(soldiersCollection);
-    const soldiers = querySnapshot.docs.map(docSnap => {
+    const [soldiersSnapshot, divisionsSnapshot] = await Promise.all([
+        getDocs(soldiersCollection),
+        getDocs(divisionsCollection)
+    ]);
+    
+    const divisionsMap = new Map(divisionsSnapshot.docs.map(doc => [doc.id, doc.data().name as string]));
+
+    const soldiers = soldiersSnapshot.docs.map(docSnap => {
       const data = docSnap.data();
+      const divisionName = data.divisionId === "unassigned" ? "לא משויך" : (divisionsMap.get(data.divisionId) || "פלוגה לא ידועה");
       return { 
         id: docSnap.id, 
         ...data,
+        divisionName,
         documents: data.documents?.map((doc: SoldierDocument) => ({
           ...doc,
           // uploadedAt will be a Firestore Timestamp, client can convert if needed
@@ -115,14 +133,24 @@ export async function getSoldierById(soldierId: string): Promise<Soldier | null>
 // Get soldiers by division ID
 export async function getSoldiersByDivisionId(divisionId: string): Promise<Soldier[]> {
   try {
+    let divisionName = "לא משויך";
+    if (divisionId !== "unassigned") {
+        const divisionDoc = await getDoc(doc(db, "divisions", divisionId));
+        if (divisionDoc.exists()) {
+            divisionName = (divisionDoc.data() as Division).name;
+        } else {
+            divisionName = "פלוגה לא ידועה";
+        }
+    }
+
     const q = query(soldiersCollection, where("divisionId", "==", divisionId));
     const querySnapshot = await getDocs(q);
     const soldiers = querySnapshot.docs.map(docSnap => {
       const data = docSnap.data();
-      // Enrich with divisionName if needed here, though for a single division context it's often redundant
       return { 
         id: docSnap.id, 
         ...data,
+        divisionName: divisionName, // Add division name
         documents: data.documents?.map((doc: SoldierDocument) => ({ ...doc })) || [],
       } as Soldier;
     });
@@ -133,21 +161,7 @@ export async function getSoldiersByDivisionId(divisionId: string): Promise<Soldi
   }
 }
 
-// Update soldier's division (for drag and drop - potentially deprecated if not used)
-export async function transferSoldier(soldierId: string, newDivisionId: string): Promise<void> {
-  try {
-    const soldierDoc = doc(db, "soldiers", soldierId);
-    await updateDoc(soldierDoc, { divisionId: newDivisionId });
-    revalidatePath("/soldiers");
-    revalidatePath(`/divisions/${newDivisionId}`); // Revalidate the specific division page
-    revalidatePath("/divisions"); // Revalidate the main divisions page
-  } catch (error) {
-    console.error("Error transferring soldier: ", error);
-    throw new Error("העברת חייל נכשלה.");
-  }
-}
 
-// Update soldier details (excluding documents, handled by separate actions)
 export async function updateSoldier(soldierId: string, updates: Partial<Omit<Soldier, 'id' | 'divisionName' | 'documents'>>): Promise<void> {
   try {
     const soldierDoc = doc(db, "soldiers", soldierId);
@@ -155,16 +169,16 @@ export async function updateSoldier(soldierId: string, updates: Partial<Omit<Sol
 
 
     await updateDoc(soldierDoc, updates);
-    revalidatePath("/soldiers"); // Revalidate all soldiers list
-    revalidatePath(`/soldiers/${soldierId}`); // Revalidate specific soldier detail page
+    revalidatePath("/soldiers"); 
+    revalidatePath(`/soldiers/${soldierId}`); 
 
     if (updates.divisionId && oldSoldierData?.divisionId !== updates.divisionId) {
-        revalidatePath(`/divisions/${updates.divisionId}`); // Revalidate new division page
-        if (oldSoldierData?.divisionId) {
-            revalidatePath(`/divisions/${oldSoldierData.divisionId}`); // Revalidate old division page
+        revalidatePath(`/divisions/${updates.divisionId}`); 
+        if (oldSoldierData?.divisionId && oldSoldierData.divisionId !== "unassigned") {
+            revalidatePath(`/divisions/${oldSoldierData.divisionId}`); 
         }
     }
-    revalidatePath("/divisions"); // Revalidate main divisions page due to potential count changes
+    revalidatePath("/divisions"); 
   } catch (error) {
     console.error("Error updating soldier: ", error);
     throw new Error("עדכון פרטי חייל נכשל.");
@@ -189,24 +203,38 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
           await deleteObject(storageRef);
         } catch (storageError) {
           console.error(`Error deleting document ${docToDelete.fileName} from storage: `, storageError);
+          // Continue deleting other files and Firestore entry even if one file fails
         }
       }
     }
 
     // Unlink armory items
     const armoryItemsRef = collection(db, "armoryItems");
-    const qArmory = query(armoryItemsRef, where("linkedSoldierId", "==", soldierId));
-    const armorySnapshot = await getDocs(qArmory);
+    const qArmoryUnique = query(armoryItemsRef, where("linkedSoldierId", "==", soldierId));
+    const armorySnapshotUnique = await getDocs(qArmoryUnique);
     const batch = writeBatch(db);
-    armorySnapshot.forEach(itemDoc => {
+    armorySnapshotUnique.forEach(itemDoc => {
         batch.update(itemDoc.ref, { linkedSoldierId: null }); 
     });
+
+    const qArmoryNonUnique = query(armoryItemsRef, where("assignments", "array-contains", { soldierId: soldierId })); // This is not a perfect query for nested array objects.
+                                                                                                                    // A more robust solution might involve fetching all non-unique items and filtering client-side or restructuring data.
+                                                                                                                    // For now, we will fetch all non-unique items and update them if they contain the soldier.
+    const allNonUniqueItemsSnapshot = await getDocs(query(armoryItemsRef, where("isUniqueItem", "==", false)));
+    allNonUniqueItemsSnapshot.forEach(itemDoc => {
+        const itemData = itemDoc.data() as ArmoryItem;
+        if (itemData.assignments && itemData.assignments.some(asgn => asgn.soldierId === soldierId)) {
+            const updatedAssignments = itemData.assignments.filter(asgn => asgn.soldierId !== soldierId);
+            batch.update(itemDoc.ref, { assignments: updatedAssignments });
+        }
+    });
+    
     await batch.commit();
 
 
     await deleteDoc(soldierDocRef);
     revalidatePath("/soldiers");
-    if (soldierData.divisionId) {
+    if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
       revalidatePath(`/divisions/${soldierData.divisionId}`);
     }
     revalidatePath("/divisions"); 
@@ -249,27 +277,41 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     });
 
     revalidatePath(`/soldiers/${soldierId}`);
-    revalidatePath("/soldiers");
+    revalidatePath("/soldiers"); // Revalidate all soldiers list if documents count might be displayed there
      return {
       ...newDocument,
-      uploadedAt: Timestamp.now() // For immediate UI update
+      uploadedAt: Timestamp.now() // For immediate UI update with actual timestamp
     };
 
   } catch (error) {
     console.error("Error uploading document: ", error);
-    throw new Error("העלאת מסמך נכשלה.");
+    if (error instanceof Error) { // Re-throw known errors or specific validation errors
+        // Check for Firebase Storage specific error codes
+        if ((error as any).code === 'storage/unauthorized') {
+            throw new Error("שגיאת הרשאות בהעלאת הקובץ. אנא בדוק את חוקי האבטחה של Firebase Storage.");
+        }
+        if ((error as any).code === 'storage/canceled') {
+            throw new Error("העלאת הקובץ בוטלה.");
+        }
+        // Re-throw other Firebase errors or general errors
+        throw error;
+    }
+    throw new Error("העלאת מסמך נכשלה עקב שגיאה לא צפויה.");
   }
 }
 
 // Delete a document for a soldier
 export async function deleteSoldierDocument(soldierId: string, documentId: string, docStoragePath: string): Promise<void> {
   try {
+    // First, attempt to delete from Firebase Storage
     const storageRefToDelete = ref(storage, docStoragePath);
     await deleteObject(storageRefToDelete);
 
+    // If successful, remove the document entry from Firestore
     const soldierDocRef = doc(db, "soldiers", soldierId);
     const soldierSnap = await getDoc(soldierDocRef);
     if (!soldierSnap.exists()) {
+      // This case should ideally not happen if we're deleting a doc for an existing soldier
       throw new Error("חייל לא נמצא.");
     }
     const soldierData = soldierSnap.data() as Soldier;
@@ -284,7 +326,8 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
   } catch (error) {
     console.error("Error deleting document: ", error);
     if (error instanceof Error && (error as any).code === "storage/object-not-found") {
-        console.warn("File not found in storage, attempting to remove from Firestore entry.");
+        // If file not found in storage, log it but still attempt to remove from Firestore
+        console.warn(`File not found in storage at path: ${docStoragePath}, attempting to remove Firestore entry.`);
         const soldierDocRef = doc(db, "soldiers", soldierId);
         const soldierSnap = await getDoc(soldierDocRef);
         if (soldierSnap.exists()) {
@@ -293,9 +336,12 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
             await updateDoc(soldierDocRef, { documents: updatedDocuments });
             revalidatePath(`/soldiers/${soldierId}`);
             revalidatePath("/soldiers");
-            return;
+            return; // Successfully removed from Firestore despite storage issue
+        } else {
+            throw new Error("חייל לא נמצא, לא ניתן להסיר את רשומת המסמך.");
         }
     }
+    // For other errors (e.g., storage/unauthorized, or Firestore update errors)
     throw new Error("מחיקת מסמך נכשלה.");
   }
 }
@@ -316,7 +362,7 @@ export interface ImportResult {
 
 export async function importSoldiers(soldiersData: SoldierImportData[]): Promise<ImportResult> {
   const allDivisions = await getDivisions();
-  const divisionMapByName = new Map(allDivisions.map(div => [div.name.toLowerCase(), div.id]));
+  const divisionMapByName = new Map(allDivisions.map(div => [div.name.trim().toLowerCase(), div.id]));
 
   let successCount = 0;
   let errorCount = 0;
@@ -346,7 +392,7 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
     if (!divisionId) {
       errorCount++;
-      errors.push({ soldierName, soldierId, rowNumber, reason: `פלוגה בשם '${divisionName}' לא נמצאה.` });
+      errors.push({ soldierName, soldierId, rowNumber, reason: `פלוגה בשם '${divisionName}' לא נמצאה במערכת.` });
       continue;
     }
 
@@ -356,9 +402,8 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
         name: soldierName,
         divisionId: divisionId,
       });
-      // Enrich with division name for immediate use in UI if needed
-      const fullNewSoldier = { ...newSoldier, divisionName, documents: [] };
-      addedSoldiers.push(fullNewSoldier);
+      // newSoldier from addSoldier already includes enriched divisionName
+      addedSoldiers.push(newSoldier);
       successCount++;
     } catch (error: any) {
       errorCount++;
@@ -368,9 +413,8 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   if (successCount > 0) {
     revalidatePath("/soldiers");
-    revalidatePath("/divisions"); // In case soldier counts changed for divisions
+    revalidatePath("/divisions"); 
   }
 
   return { successCount, errorCount, errors, addedSoldiers };
 }
-
