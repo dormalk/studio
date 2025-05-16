@@ -22,24 +22,24 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Timestamp } from "firebase/firestore";
+import type { Timestamp } from "firebase/firestore"; // Keep for formatDate flexibility
 import { uploadSoldierDocument, deleteSoldierDocument, updateSoldier } from "@/actions/soldierActions";
-import { 
-    addArmoryItem, 
-    scanArmoryItemImage, 
+import {
+    addArmoryItem,
+    scanArmoryItemImage,
     manageSoldierAssignmentToNonUniqueItem,
-    getArmoryItemsBySoldierId, 
-    getArmoryItems
+    getArmoryItemsBySoldierId,
+    getArmoryItems // Import for refreshing available non-unique items
 } from "@/actions/armoryActions";
 import Link from "next/link";
 import Image from "next/image";
-import { 
-    Dialog, 
-    DialogContent, 
-    DialogHeader, 
-    DialogTitle, 
-    DialogDescription, 
-    DialogFooter, 
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
     DialogClose,
     DialogTrigger
 } from "@/components/ui/dialog";
@@ -52,9 +52,9 @@ import { getDivisions } from "@/actions/divisionActions";
 
 interface SoldierDetailClientProps {
   soldier: Soldier;
-  initialArmoryItems: ArmoryItem[]; 
+  initialArmoryItems: ArmoryItem[];
   initialArmoryItemTypes: ArmoryItemType[];
-  availableNonUniqueItems: Array<ArmoryItem & { availableQuantity: number }>; 
+  availableNonUniqueItems: Array<ArmoryItem & { availableQuantity: number }>;
 }
 
 const soldierDetailsSchema = z.object({
@@ -65,7 +65,7 @@ type SoldierDetailsFormData = z.infer<typeof soldierDetailsSchema>;
 
 const armoryItemBaseSchemaOnSoldierPage = z.object({
   itemTypeId: z.string().min(1, "יש לבחור סוג פריט"),
-  itemId: z.string().optional(), 
+  itemId: z.string().optional(),
   photoDataUri: z.string().optional(),
 });
 
@@ -96,11 +96,11 @@ const updateAssignedQuantitySchema = z.object({
 type UpdateAssignedQuantityFormData = z.infer<typeof updateAssignedQuantitySchema>;
 
 
-export function SoldierDetailClient({ 
-    soldier: initialSoldier, 
-    initialArmoryItems, 
+export function SoldierDetailClient({
+    soldier: initialSoldier,
+    initialArmoryItems,
     initialArmoryItemTypes,
-    availableNonUniqueItems: initialAvailableNonUniqueItems 
+    availableNonUniqueItems: initialAvailableNonUniqueItems
 }: SoldierDetailClientProps) {
   const [soldier, setSoldier] = useState<Soldier>(initialSoldier);
   const [armoryItemsForSoldier, setArmoryItemsForSoldier] = useState<ArmoryItem[]>(initialArmoryItems);
@@ -163,7 +163,7 @@ export function SoldierDetailClient({
   useEffect(() => {
     setArmoryItemsForSoldier(initialArmoryItems);
   }, [initialArmoryItems]);
-  
+
   useEffect(() => {
     setAllArmoryItemTypes(initialArmoryItemTypes.sort((a,b) => a.name.localeCompare(b.name)));
   }, [initialArmoryItemTypes]);
@@ -191,7 +191,7 @@ export function SoldierDetailClient({
     const itemTypeId = addUniqueArmoryItemForm.watch("itemTypeId");
     if (itemTypeId) {
       const type = allArmoryItemTypes.find(t => t.id === itemTypeId);
-      setSelectedItemTypeForSoldierPageIsUnique(type ? type.isUnique : null); 
+      setSelectedItemTypeForSoldierPageIsUnique(type ? type.isUnique : null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type ? type.isUnique : null;
     } else {
       setSelectedItemTypeForSoldierPageIsUnique(null);
@@ -245,9 +245,10 @@ export function SoldierDetailClient({
     formData.append("file", selectedFile);
 
     try {
+      // uploadSoldierDocument returns SoldierDocument with uploadedAt as ISO string
       const newDocument = await uploadSoldierDocument(soldier.id, formData);
       setSoldier(prev => {
-        if (!prev) return prev; 
+        if (!prev) return prev;
         const updatedDocs = [...(prev.documents || []), newDocument];
         return { ...prev, documents: updatedDocs };
       });
@@ -255,7 +256,14 @@ export function SoldierDetailClient({
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה." });
+      let errorMessage = "העלאת מסמך נכשלה.";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      console.error("Client-side document upload error details:", error);
+      toast({ variant: "destructive", title: "שגיאת העלאה", description: errorMessage });
     } finally {
       setIsUploading(false);
     }
@@ -266,10 +274,17 @@ export function SoldierDetailClient({
     try {
       await deleteSoldierDocument(soldier.id, documentId, storagePath);
       const updatedDocs = soldier.documents?.filter(doc => doc.id !== documentId);
-      setSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null); 
+      setSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null);
       toast({ title: "הצלחה", description: "המסמך נמחק." });
     } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
+      let errorMessage = "מחיקת מסמך נכשלה.";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      console.error("Client-side document delete error details:", error);
+      toast({ variant: "destructive", title: "שגיאת מחיקה", description: errorMessage });
     }
   };
 
@@ -298,19 +313,19 @@ export function SoldierDetailClient({
       reader.onloadend = async () => {
         const dataUri = reader.result as string;
         setScannedArmoryImagePreview(dataUri);
-        addUniqueArmoryItemForm.setValue("photoDataUri", dataUri); 
+        addUniqueArmoryItemForm.setValue("photoDataUri", dataUri);
         try {
           const result = await scanArmoryItemImage(dataUri);
-          
+
           const currentItemTypeId = addUniqueArmoryItemForm.getValues("itemTypeId");
           const currentItemType = allArmoryItemTypes.find(t => t.id === currentItemTypeId);
 
           if (currentItemType && currentItemType.isUnique) {
             addUniqueArmoryItemForm.setValue("itemId", result.itemId);
-          } else if (!currentItemType) { 
+          } else if (!currentItemType) {
              addUniqueArmoryItemForm.setValue("itemId", result.itemId);
           }
-          
+
           const matchedType = allArmoryItemTypes.find(type => type.name.toLowerCase() === result.itemType.toLowerCase());
           if (matchedType) {
             addUniqueArmoryItemForm.setValue("itemTypeId", matchedType.id);
@@ -334,7 +349,7 @@ export function SoldierDetailClient({
 
   const handleAddArmoryItemToSoldier = async (values: ArmoryItemFormDataOnSoldierPage) => {
     const type = allArmoryItemTypes.find(t => t.id === values.itemTypeId);
-    if (!type) { 
+    if (!type) {
       toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט חוקי." });
       return;
     }
@@ -352,35 +367,35 @@ export function SoldierDetailClient({
     try {
       const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt' | 'totalQuantity' | 'assignments' | '_currentSoldierAssignedQuantity'> = {
         itemTypeId: validatedValues.itemTypeId,
-        isUniqueItem: type.isUnique, 
+        isUniqueItem: type.isUnique,
         itemId: type.isUnique ? validatedValues.itemId : undefined,
-        linkedSoldierId: soldier.id, 
+        linkedSoldierId: soldier.id,
         imageUrl: validatedValues.photoDataUri || undefined,
       };
 
       const newItemServer = await addArmoryItem(dataToSave);
-      
+
       const newItemForState: ArmoryItem = {
         id: newItemServer.id,
         itemTypeId: newItemServer.itemTypeId,
         itemTypeName: type.name,
-        isUniqueItem: type.isUnique, 
+        isUniqueItem: type.isUnique,
         itemId: type.isUnique ? newItemServer.itemId : undefined,
-        linkedSoldierId: type.isUnique ? soldier.id : undefined, 
+        linkedSoldierId: type.isUnique ? soldier.id : undefined,
         linkedSoldierName: type.isUnique ? soldier.name : undefined,
         linkedSoldierDivisionName: type.isUnique ? soldier.divisionName : undefined,
         imageUrl: newItemServer.imageUrl,
-        totalQuantity: !type.isUnique ? newItemServer.totalQuantity : undefined, 
+        totalQuantity: !type.isUnique ? newItemServer.totalQuantity : undefined,
         assignments: !type.isUnique ? (newItemServer.assignments || []) : undefined,
       };
-      
+
       if (type.isUnique) {
         setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
       }
-      
+
       toast({ title: "הצלחה", description: `פריט נשקייה (${type.name}) נוסף ${type.isUnique ? 'ושויך לחייל' : 'למלאי'}.` });
-      
-      setIsAddUniqueArmoryItemDialogOpen(false); 
+
+      setIsAddUniqueArmoryItemDialogOpen(false);
 
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת פריט נשקייה נכשלה." });
@@ -390,11 +405,11 @@ export function SoldierDetailClient({
   const handleAssignNonUniqueItem = async (values: AssignNonUniqueFormData) => {
     try {
         await manageSoldierAssignmentToNonUniqueItem(values.selectedArmoryItemId, soldier.id, values.quantityToAssign);
-        
+
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
 
-        const allItems = await getArmoryItems(); 
+        const allItems = await getArmoryItems();
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
@@ -414,8 +429,8 @@ export function SoldierDetailClient({
         await manageSoldierAssignmentToNonUniqueItem(itemToUpdateAssignment.id, soldier.id, values.newQuantity);
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
-        
-        const allItems = await getArmoryItems(); 
+
+        const allItems = await getArmoryItems();
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
@@ -431,11 +446,11 @@ export function SoldierDetailClient({
 
   const handleUnassignNonUniqueItem = async (itemIdToUnassign: string) => {
      try {
-        await manageSoldierAssignmentToNonUniqueItem(itemIdToUnassign, soldier.id, 0); 
+        await manageSoldierAssignmentToNonUniqueItem(itemIdToUnassign, soldier.id, 0);
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
 
-        const allItems = await getArmoryItems(); 
+        const allItems = await getArmoryItems();
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
@@ -461,18 +476,20 @@ export function SoldierDetailClient({
   const formatDate = (timestampInput: string | Date | Timestamp | undefined): string => {
     if (!timestampInput) return 'לא זמין';
     let date: Date;
-  
+
     if (typeof timestampInput === 'string') {
       date = new Date(timestampInput);
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as Timestamp).toDate === 'function') {
-      date = (timestampInput as Timestamp).toDate();
+    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { // More generic check
+      date = (timestampInput as any).toDate();
     } else {
+      console.warn("Invalid date input to formatDate:", timestampInput);
       return 'תאריך לא תקין';
     }
-  
+
     if (isNaN(date.getTime())) {
+      console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
       return 'תאריך לא תקין';
     }
     return date.toLocaleDateString('he-IL');
@@ -551,11 +568,11 @@ export function SoldierDetailClient({
           <div className="space-y-2">
             <Label htmlFor="soldierDocumentUpload">העלאת מסמך חדש</Label>
             <div className="flex items-center gap-2">
-              <Input 
-                id="soldierDocumentUpload" 
-                type="file" 
+              <Input
+                id="soldierDocumentUpload"
+                type="file"
                 ref={fileInputRef}
-                onChange={handleFileChange} 
+                onChange={handleFileChange}
                 className="flex-grow"
               />
               <Button type="button" onClick={handleDocumentUpload} disabled={!selectedFile || isUploading}>
@@ -641,27 +658,27 @@ export function SoldierDetailClient({
                                         name="itemTypeId"
                                         control={addUniqueArmoryItemForm.control}
                                         render={({ field }) => (
-                                            <Select 
+                                            <Select
                                                 onValueChange={(value) => {
                                                     field.onChange(value);
                                                     const type = allArmoryItemTypes.find(t => t.id === value);
                                                     setSelectedItemTypeForSoldierPageIsUnique(type ? type.isUnique : null);
                                                     (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type ? type.isUnique : null;
                                                     if (type && !type.isUnique) {
-                                                        addUniqueArmoryItemForm.setValue("itemTypeId", ""); 
+                                                        addUniqueArmoryItemForm.setValue("itemTypeId", "");
                                                         toast({variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט ייחודי בלבד."})
                                                         setSelectedItemTypeForSoldierPageIsUnique(null);
                                                         (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
                                                     }
-                                                    addUniqueArmoryItemForm.trigger(); 
-                                                }} 
+                                                    addUniqueArmoryItemForm.trigger();
+                                                }}
                                                 value={field.value || ""}
                                             >
                                             <SelectTrigger id="armoryItemTypeIdSelectSoldierPage">
                                                 <SelectValue placeholder="בחר סוג פריט ייחודי..." />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {allArmoryItemTypes.filter(type => type.isUnique).map(type => ( 
+                                                {allArmoryItemTypes.filter(type => type.isUnique).map(type => (
                                                 <SelectItem key={type.id} value={type.id}>{type.name} (ייחודי)</SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -671,14 +688,14 @@ export function SoldierDetailClient({
                                     {addUniqueArmoryItemForm.formState.errors.itemTypeId && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.itemTypeId.message}</p>}
                                 </div>
 
-                                {selectedItemTypeForSoldierPageIsUnique === true && ( 
+                                {selectedItemTypeForSoldierPageIsUnique === true && (
                                     <div>
                                         <Label htmlFor="armoryItemIdSoldierPage">מספר סריאלי</Label>
                                         <Input id="armoryItemIdSoldierPage" {...addUniqueArmoryItemForm.register("itemId")} />
                                         {addUniqueArmoryItemForm.formState.errors.itemId && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.itemId.message}</p>}
                                     </div>
                                 )}
-                                
+
                                 {selectedItemTypeForSoldierPageIsUnique !== null && (
                                     <div>
                                         <Label htmlFor="armoryItemImageSoldierPage">תמונת פריט (לסריקה)</Label>
@@ -689,7 +706,7 @@ export function SoldierDetailClient({
                                         </Button>
                                         </div>
                                     </div>
-                                )}                
+                                )}
                                 {scannedArmoryImagePreview && (
                                 <div className="mt-2 border rounded-md p-2 flex justify-center items-center h-32 overflow-hidden">
                                     <Image src={scannedArmoryImagePreview} alt="תצוגה מקדימה" width={100} height={100} className="object-contain max-h-full" data-ai-hint="equipment military"/>
@@ -726,7 +743,7 @@ export function SoldierDetailClient({
                         </CardHeader>
                         <CardFooter>
                             <Button variant="outline" size="sm" asChild className="w-full">
-                            <Link href={`/armory`}> 
+                            <Link href={`/armory`}>
                                 הצג בנשקייה
                             </Link>
                             </Button>
@@ -736,7 +753,7 @@ export function SoldierDetailClient({
                     </div>
                 )}
             </div>
-            
+
             <Separator />
 
             <div>
@@ -792,7 +809,7 @@ export function SoldierDetailClient({
                 ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {nonUniqueItemsAssigned.map(item => (
-                            <Card key={item.id + "_assigned"}> 
+                            <Card key={item.id + "_assigned"}>
                                 <CardHeader className="pb-2">
                                      {item.imageUrl ? (
                                         <div className="relative h-32 w-full mb-2 rounded-md overflow-hidden">
@@ -808,11 +825,11 @@ export function SoldierDetailClient({
                                     <CardDescription className="text-xs">סה"כ במלאי פריט זה: {item.totalQuantity}</CardDescription>
                                 </CardHeader>
                                 <CardFooter className="flex-col items-stretch gap-2">
-                                    <Dialog 
-                                        open={isUpdateQuantityDialogOpen && itemToUpdateAssignment?.id === item.id} 
+                                    <Dialog
+                                        open={isUpdateQuantityDialogOpen && itemToUpdateAssignment?.id === item.id}
                                         onOpenChange={(isOpen) => {
                                             if (isOpen) setItemToUpdateAssignment(item);
-                                            else setItemToUpdateAssignment(null); 
+                                            else setItemToUpdateAssignment(null);
                                             setIsUpdateQuantityDialogOpen(isOpen);
                                         }}
                                     >

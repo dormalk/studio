@@ -18,7 +18,7 @@ export interface SoldierDocument {
   downloadURL: string;
   fileType: string; // MIME type
   fileSize: number; // in bytes
-  uploadedAt: string; // ISO string format for client-side, was Timestamp
+  uploadedAt: string; // ISO string format for client-side
 }
 
 export interface Soldier {

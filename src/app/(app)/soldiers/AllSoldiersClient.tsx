@@ -5,7 +5,7 @@ import type { Soldier, Division, SoldierDocument } from "@/types";
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; 
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlusCircle, Trash2, Edit3, Upload, FileText, Download, Eye, RefreshCw, FileUp } from "lucide-react";
@@ -29,9 +29,9 @@ import {
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { 
-  addSoldier, 
-  deleteSoldier, 
+import {
+  addSoldier,
+  deleteSoldier,
   updateSoldier,
   uploadSoldierDocument,
   deleteSoldierDocument,
@@ -53,7 +53,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Timestamp } from "firebase/firestore";
+import type { Timestamp } from "firebase/firestore"; // Keep for formatDate flexibility
 import * as XLSX from 'xlsx';
 
 const soldierSchema = z.object({
@@ -64,7 +64,7 @@ const soldierSchema = z.object({
 
 interface AllSoldiersClientProps {
   initialSoldiers: Soldier[];
-  initialDivisions: Division[]; 
+  initialDivisions: Division[];
 }
 
 export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSoldiersClientProps) {
@@ -75,7 +75,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
   const [isSoldierDialogOpen, setIsSoldierDialogOpen] = useState(false);
   const [editingSoldier, setEditingSoldier] = useState<Soldier | null>(null);
-  
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,7 +98,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   useEffect(() => {
     setDivisions(initialDivisions.sort((a,b) => a.name.localeCompare(b.name)));
   }, [initialDivisions]);
-  
+
   useEffect(() => {
     if (editingSoldier) {
       soldierForm.reset({
@@ -109,7 +109,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     } else {
       soldierForm.reset({ id: "", name: "", divisionId: "" });
     }
-    setSelectedFile(null); 
+    setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
 
   }, [editingSoldier, soldierForm, isSoldierDialogOpen]);
@@ -128,8 +128,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
       if (editingSoldier) {
         await updateSoldier(editingSoldier.id, {name: values.name, divisionId: values.divisionId});
-         updatedOrNewSoldier = { 
-            ...editingSoldier, 
+         updatedOrNewSoldier = {
+            ...editingSoldier,
             name: values.name,
             divisionId: values.divisionId,
             divisionName,
@@ -138,19 +138,19 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         toast({ title: "הצלחה", description: "פרטי החייל עודכנו." });
       } else {
         const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
-        updatedOrNewSoldier = { 
-            ...newSoldierServerData,
-            documents: [] 
+        updatedOrNewSoldier = {
+            ...newSoldierServerData, // This includes documents: [] and already converted uploadedAt if any
+            documents: newSoldierServerData.documents || [] // Ensure documents is an array
         };
         setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
         toast({ title: "הצלחה", description: "חייל נוסף בהצלחה." });
-        setEditingSoldier(updatedOrNewSoldier); 
+        setEditingSoldier(updatedOrNewSoldier);
       }
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת חייל נכשלה." });
     }
   };
-  
+
   const handleDeleteSoldier = async (soldierId: string) => {
     try {
       await deleteSoldier(soldierId);
@@ -165,10 +165,10 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     setEditingSoldier(soldier);
     setIsSoldierDialogOpen(true);
   };
-  
+
   const openAddNewSoldierDialog = () => {
-    setEditingSoldier(null); 
-    soldierForm.reset({ id: "", name: "", divisionId: divisions[0]?.id || "unassigned"}); 
+    setEditingSoldier(null);
+    soldierForm.reset({ id: "", name: "", divisionId: divisions[0]?.id || "unassigned"});
     setIsSoldierDialogOpen(true);
   };
 
@@ -190,22 +190,30 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     formData.append("file", selectedFile);
 
     try {
+      // uploadSoldierDocument returns SoldierDocument with uploadedAt as ISO string
       const newDocument = await uploadSoldierDocument(editingSoldier.id, formData);
       setEditingSoldier(prev => {
         if (!prev) return null;
         const updatedDocs = [...(prev.documents || []), newDocument];
         return { ...prev, documents: updatedDocs };
       });
-      setSoldiers(prevSoldiers => prevSoldiers.map(s => 
-        s.id === editingSoldier.id 
-          ? { ...s, documents: [...(s.documents || []), newDocument] } 
+      setSoldiers(prevSoldiers => prevSoldiers.map(s =>
+        s.id === editingSoldier.id
+          ? { ...s, documents: [...(s.documents || []), newDocument] }
           : s
       ));
       toast({ title: "הצלחה", description: `מסמך '${newDocument.fileName}' הועלה בהצלחה.` });
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה." });
+      let errorMessage = "העלאת מסמך נכשלה.";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      console.error("Client-side document upload error details:", error);
+      toast({ variant: "destructive", title: "שגיאת העלאה", description: errorMessage });
     } finally {
       setIsUploading(false);
     }
@@ -217,14 +225,21 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       await deleteSoldierDocument(editingSoldier.id, documentId, storagePath);
       const updatedDocs = editingSoldier.documents?.filter(doc => doc.id !== documentId);
       setEditingSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null);
-      setSoldiers(prevSoldiers => prevSoldiers.map(s => 
-        s.id === editingSoldier.id 
-          ? { ...s, documents: updatedDocs } 
+      setSoldiers(prevSoldiers => prevSoldiers.map(s =>
+        s.id === editingSoldier.id
+          ? { ...s, documents: updatedDocs }
           : s
       ));
       toast({ title: "הצלחה", description: "המסמך נמחק." });
     } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
+      let errorMessage = "מחיקת מסמך נכשלה.";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      console.error("Client-side document delete error details:", error);
+      toast({ variant: "destructive", title: "שגיאת מחיקה", description: errorMessage });
     }
   };
 
@@ -254,13 +269,13 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        
+
         const jsonDataRaw = XLSX.utils.sheet_to_json(worksheet, {
-          header: 1, 
-          defval: '', 
+          header: 1,
+          defval: '',
         }) as Array<any[]>;
 
-        if (!jsonDataRaw || jsonDataRaw.length < 1) { 
+        if (!jsonDataRaw || jsonDataRaw.length < 1) {
           toast({ variant: "destructive", title: "שגיאה", description: "הקובץ ריק או שאינו בפורמט Excel תקין (נדרשת שורת כותרות לפחות)." });
           setIsImporting(false);
           return;
@@ -280,7 +295,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           if (nameIndex === -1) missingHeaders.push(`"${soldierNameHeader}"`);
           if (idIndex === -1) missingHeaders.push(`"${soldierIdHeader}"`);
           if (divisionIndex === -1) missingHeaders.push(`"${divisionNameHeader}"`);
-          
+
           toast({
             variant: "destructive",
             title: "שגיאת מבנה קובץ",
@@ -290,7 +305,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           setIsImporting(false);
           return;
         }
-        
+
         const dataRows = jsonDataRaw.slice(1);
         if (dataRows.length === 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים לייבוא בקובץ (לאחר שורת הכותרות)." });
@@ -304,7 +319,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             id: String(rowArray[idIndex] || "").trim(),
             divisionName: String(rowArray[divisionIndex] || "").trim(),
           }))
-          .filter(soldier => soldier.id && soldier.name && soldier.divisionName); 
+          .filter(soldier => soldier.id && soldier.name && soldier.divisionName);
 
         if (soldiersToImport.length === 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים תקינות (עם כל השדות הנדרשים) לייבוא בקובץ. ודא שכל שורה מכילה ערכים עבור 'שם החייל', 'מספר אישי', ו'שם הפלוגה'." });
@@ -315,6 +330,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const result: ImportResult = await importSoldiers(soldiersToImport);
 
         if (result.successCount > 0) {
+          // result.addedSoldiers already have uploadedAt as string if needed
           setSoldiers(prev => [...prev, ...result.addedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
           toast({
             title: "ייבוא הושלם",
@@ -323,7 +339,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         }
 
         if (result.errorCount > 0) {
-          console.error("Import errors:", result.errors); 
+          console.error("Import errors:", result.errors);
           let errorDescriptionContent: React.ReactNode;
           if (result.errorCount === 1 && result.errors[0]) {
             const err = result.errors[0];
@@ -342,10 +358,10 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             variant: "destructive",
             title: `שגיאות בייבוא (${result.errorCount})`,
             description: errorDescriptionContent,
-            duration: result.errorCount === 1 ? 10000 : 15000 
+            duration: result.errorCount === 1 ? 10000 : 15000
           });
         }
-        
+
         if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length > 0) {
              toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ (ייתכן שכולם כבר קיימים או שהשורות לא הכילו את כל הנתונים הנדרשים)." });
         }
@@ -378,18 +394,20 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   const formatDate = (timestampInput: string | Date | Timestamp | undefined): string => {
     if (!timestampInput) return 'לא זמין';
     let date: Date;
-  
+
     if (typeof timestampInput === 'string') {
       date = new Date(timestampInput);
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as Timestamp).toDate === 'function') {
-      date = (timestampInput as Timestamp).toDate();
+    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { // More generic check for Timestamp-like
+      date = (timestampInput as any).toDate();
     } else {
+      console.warn("Invalid date input to formatDate:", timestampInput);
       return 'תאריך לא תקין';
     }
-  
+
     if (isNaN(date.getTime())) {
+      console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
       return 'תאריך לא תקין';
     }
     return date.toLocaleDateString('he-IL');
@@ -427,12 +445,12 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                     <div className="space-y-4 py-2">
                         <div>
                             <Label htmlFor="importFile">בחר קובץ</Label>
-                            <Input 
-                                id="importFile" 
-                                type="file" 
+                            <Input
+                                id="importFile"
+                                type="file"
                                 accept=".xlsx, .xls"
                                 ref={importFileInputRef}
-                                onChange={handleImportFileChange} 
+                                onChange={handleImportFileChange}
                             />
                         </div>
                         {importFile && <p className="text-sm text-muted-foreground">קובץ נבחר: {importFile.name}</p>}
@@ -449,10 +467,10 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             <Button onClick={openAddNewSoldierDialog}><PlusCircle className="ms-2 h-4 w-4" /> הוסף חייל</Button>
         </div>
       </div>
-        <Dialog 
-          open={isSoldierDialogOpen} 
-          onOpenChange={(isOpen) => { 
-            setIsSoldierDialogOpen(isOpen); 
+        <Dialog
+          open={isSoldierDialogOpen}
+          onOpenChange={(isOpen) => {
+            setIsSoldierDialogOpen(isOpen);
             if (!isOpen) {
               setEditingSoldier(null);
               soldierForm.reset();
@@ -513,11 +531,11 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                   <div className="space-y-2">
                     <Label htmlFor="soldierDocument">העלאת מסמך חדש</Label>
                     <div className="flex items-center gap-2">
-                      <Input 
-                        id="soldierDocument" 
-                        type="file" 
+                      <Input
+                        id="soldierDocument"
+                        type="file"
                         ref={fileInputRef}
-                        onChange={handleFileChange} 
+                        onChange={handleFileChange}
                         className="flex-grow"
                       />
                       <Button type="button" onClick={handleDocumentUpload} disabled={!selectedFile || isUploading}>
@@ -592,7 +610,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         onChange={(e) => setSearchTerm(e.target.value)}
         className="max-w-sm"
       />
-    
+
       {filteredSoldiers.length === 0 ? (
         <p className="text-center text-muted-foreground py-8">
           {searchTerm ? "לא נמצאו חיילים התואמים לחיפוש." : "אין חיילים להצגה."}
@@ -633,7 +651,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                   <>
                     <p className="text-xs font-medium mt-2 mb-1">מסמכים ({soldier.documents.length}):</p>
                     <ul className="space-y-1">
-                      {soldier.documents.slice(0, 2).map(doc => ( 
+                      {soldier.documents.slice(0, 2).map(doc => (
                         <li key={doc.id} className="text-xs text-muted-foreground truncate">
                           <FileText className="inline h-3 w-3 me-1" />{doc.fileName}
                         </li>
