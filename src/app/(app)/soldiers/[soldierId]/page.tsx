@@ -1,11 +1,13 @@
 
-// Placeholder for Single Soldier Detail Page
-// This will be implemented in a later step.
+import { getSoldierById } from "@/actions/soldierActions";
+import { getArmoryItemsBySoldierId } from "@/actions/armoryActions";
+import { SoldierDetailClient } from "./SoldierDetailClient";
+import { notFound } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { ArrowRight } from "lucide-react";
 
-// import { getSoldierById } from "@/actions/soldierActions"; // Action to be created
-// import { getArmoryItemsBySoldierId } from "@/actions/armoryActions"; // Action to be created
-// import { SoldierDetailClient } from "./SoldierDetailClient";
-// import { notFound } from "next/navigation";
 
 export const dynamic = 'force-dynamic';
 
@@ -17,19 +19,30 @@ interface SoldierPageProps {
 
 export default async function SoldierPage({ params }: SoldierPageProps) {
   const { soldierId } = params;
-  // const soldier = await getSoldierById(soldierId);
-  // if (!soldier) {
-  //   notFound();
-  // }
-  // const linkedArmoryItems = await getArmoryItemsBySoldierId(soldierId);
+  
+  const soldier = await getSoldierById(soldierId);
+  
+  if (!soldier) {
+    notFound();
+  }
+  
+  const linkedArmoryItems = await getArmoryItemsBySoldierId(soldierId);
   
   return (
-    <div className="container mx-auto py-8">
-      <h1 className="text-3xl font-bold mb-6">פרטי חייל: {/*soldier.name*/} (ת.ז. {soldierId})</h1>
-      {/* <SoldierDetailClient soldier={soldier} initialArmoryItems={linkedArmoryItems} /> */}
-      <p className="text-muted-foreground">דף פרטי חייל ייושם בשלב הבא.</p>
-      <p className="text-muted-foreground">יוצגו כאן פרטי החייל, רשימת מסמכים, ופריטי נשקייה מקושרים.</p>
+    <div className="container mx-auto py-8 space-y-8">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold">פרטי חייל: {soldier.name} (ת.ז. {soldierId})</h1>
+        <Button asChild variant="outline">
+            <Link href="/soldiers">
+                <ArrowRight className="ms-2 h-4 w-4" />
+                חזרה לכל החיילים
+            </Link>
+        </Button>
+      </div>
+      
+      <SoldierDetailClient soldier={soldier} initialArmoryItems={linkedArmoryItems} />
     </div>
   );
 }
 
+    
