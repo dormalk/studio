@@ -243,15 +243,25 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-          header: ["name", "id", "divisionName"], 
-          range: 1 
-        }) as SoldierImportData[];
         
-        const soldiersToImport = jsonData.filter(row => row.id && row.name && row.divisionName);
+        // Use the first row as headers, and provide default value for empty cells.
+        const jsonDataRaw = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1, 
+          defval: '', // Treat empty cells as empty strings
+        }) as Array<{[key: string]: any}>;
+
+
+        const soldiersToImport: SoldierImportData[] = jsonDataRaw
+          .map(row => ({
+            // Ensure values are strings and trimmed.
+            name: String(row["שם החייל"] || "").trim(),
+            id: String(row["מספר אישי"] || "").trim(),
+            divisionName: String(row["שם הפלוגה"] || "").trim(),
+          }))
+          .filter(soldier => soldier.id && soldier.name && soldier.divisionName); // Filter out rows that are incomplete AFTER mapping
 
         if(soldiersToImport.length === 0){
-            toast({ variant: "destructive", title: "שגיאה", description: "לא נמצאו נתונים תקינים לייבוא בקובץ. ודא שהעמודות הן: שם החייל, מספר אישי, שם הפלוגה (עם כותרות בשורה הראשונה)." });
+            toast({ variant: "destructive", title: "שגיאה", description: "לא נמצאו נתונים תקינים לייבוא בקובץ. ודא שהקובץ אינו ריק ושהעמודות 'שם החייל', 'מספר אישי', ו'שם הפלוגה' קיימות ומכילות ערכים (עם כותרות בשורה הראשונה)." });
             setIsImporting(false);
             return;
         }
@@ -259,7 +269,16 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const result: ImportResult = await importSoldiers(soldiersToImport);
 
         if (result.successCount > 0) {
-          setSoldiers(prev => [...prev, ...result.addedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
+          // Create full Soldier objects for the client-side state
+          const newlyAddedSoldiers: Soldier[] = result.addedSoldiers.map(s => {
+            const division = divisions.find(d => d.id === s.divisionId);
+            return {
+              ...s,
+              divisionName: division ? division.name : "לא משויך",
+              documents: [] // New soldiers from import won't have documents yet
+            };
+          });
+          setSoldiers(prev => [...prev, ...newlyAddedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
           toast({
             title: "ייבוא הושלם",
             description: `${result.successCount} חיילים נוספו בהצלחה.`,
@@ -267,7 +286,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         }
 
         if (result.errorCount > 0) {
-          console.error("Import errors:", result.errors); // Log all errors to console
+          console.error("Import errors:", result.errors); 
           let errorDescription;
           if (result.errorCount === 1 && result.errors[0]) {
             const err = result.errors[0];
@@ -292,7 +311,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         }
         
         if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length > 0) {
-            toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ." });
+            toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ (ייתכן שכולם כבר קיימים)." });
         }
 
         setImportFile(null);
@@ -346,8 +365,13 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                         <DialogTitle>ייבוא חיילים מקובץ Excel</DialogTitle>
                         <DialogDescription>
                             בחר קובץ Excel (.xlsx, .xls) לייבוא.
-                            הקובץ צריך להכיל את העמודות הבאות (עם כותרות בשורה הראשונה): 
-                            שם החייל, מספר אישי, שם הפלוגה.
+                            הקובץ צריך להכיל את העמודות הבאות, עם כותרות בשורה הראשונה:
+                            <ul className="list-disc list-inside my-2">
+                                <li>שם החייל</li>
+                                <li>מספר אישי</li>
+                                <li>שם הפלוגה</li>
+                            </ul>
+                            סדר העמודות אינו משנה.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
@@ -587,3 +611,5 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   );
 }
 
+
+    
