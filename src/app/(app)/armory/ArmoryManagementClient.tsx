@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Edit3, Camera, RefreshCw, ListChecks, User, PackageSearch, Building } from "lucide-react";
+import { PlusCircle, Trash2, Edit3, Camera, RefreshCw, ListChecks, User, PackageSearch, Building, FileSpreadsheet } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +51,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import * as XLSX from 'xlsx';
 
 
 const armoryItemSchema = z.object({
@@ -120,11 +121,11 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       itemForm.reset({
         itemTypeId: editingItem.itemTypeId,
         itemId: editingItem.itemId,
-        linkedSoldierId: editingItem.linkedSoldierId || "",
+        linkedSoldierId: editingItem.linkedSoldierId || NO_SOLDIER_LINKED_VALUE, // Ensure correct default for edit
       });
       setScannedImagePreview(editingItem.imageUrl || null);
     } else {
-      itemForm.reset({ itemTypeId: "", itemId: "", linkedSoldierId: "" });
+      itemForm.reset({ itemTypeId: "", itemId: "", linkedSoldierId: NO_SOLDIER_LINKED_VALUE }); // Default to no soldier
       setScannedImagePreview(null);
     }
   }, [editingItem, itemForm, isItemDialogOpen]);
@@ -185,17 +186,19 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         soldierIdToSave = values.linkedSoldierId;
       }
 
-      const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'imageUrl' | 'createdAt'> & { imageUrl?: string } = {
+      const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt'> & { imageUrl?: string } = {
         itemTypeId: values.itemTypeId,
         itemId: values.itemId,
         linkedSoldierId: soldierIdToSave,
+        // imageUrl is handled based on existing logic (scan or existing item)
       };
       
-      if (values.photoDataUri && !editingItem) { 
-         // For now, assuming imageUrl is either pre-existing or not set by scan for simplicity.
-      } else if (editingItem?.imageUrl) {
+      // Retain existing image URL if editing and no new image scanned (photoDataUri isn't directly saved as imageUrl here)
+      if (editingItem?.imageUrl && !values.photoDataUri) {
         dataToSave.imageUrl = editingItem.imageUrl;
       }
+      // If a new photo was scanned (photoDataUri exists), it would be part of the AI flow but not directly set as imageUrl unless scanArmoryItemImage returns it for saving.
+      // For now, we assume imageUrl is set if the item already had one, or from a separate upload mechanism if implemented.
 
       let updatedOrNewItemClient: ArmoryItem;
       const itemTypeName = armoryItemTypes.find(t => t.id === dataToSave.itemTypeId)?.name || "לא ידוע";
@@ -206,7 +209,8 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
           const soldier = soldiers.find(s => s.id === dataToSave.linkedSoldierId);
           if (soldier) {
               linkedSoldierName = soldier.name;
-              linkedSoldierDivisionName = soldier.divisionName; // Assuming soldier.divisionName is populated
+              // Assuming soldier.divisionName is populated from initialSoldiers fetch
+              linkedSoldierDivisionName = soldier.divisionName || "פלוגה לא משויכת"; 
           }
       }
 
@@ -218,8 +222,8 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
             ...dataToSave, 
             itemTypeName, 
             linkedSoldierName, 
-            linkedSoldierDivisionName, 
-            imageUrl: dataToSave.imageUrl 
+            linkedSoldierDivisionName,
+            imageUrl: dataToSave.imageUrl // Ensure imageUrl is part of the client object
         };
         setArmoryItems(prev => prev.map(item => item.id === editingItem.id ? updatedOrNewItemClient : item));
         toast({ title: "הצלחה", description: "פרטי הפריט עודכנו." });
@@ -230,14 +234,14 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
             itemTypeName, 
             linkedSoldierName, 
             linkedSoldierDivisionName,
-            imageUrl: dataToSave.imageUrl 
+            imageUrl: dataToSave.imageUrl // Ensure imageUrl is part of the client object
         }; 
         setArmoryItems(prev => [...prev, updatedOrNewItemClient]);
         toast({ title: "הצלחה", description: "פריט נוסף בהצלחה." });
       }
       setIsItemDialogOpen(false);
       setEditingItem(null);
-      itemForm.reset();
+      itemForm.reset({ itemTypeId: "", itemId: "", linkedSoldierId: NO_SOLDIER_LINKED_VALUE });
       setScannedImagePreview(null);
       if(fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
@@ -300,12 +304,31 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     setIsItemTypeDialogOpen(true); 
   };
 
+  const handleExportToExcel = () => {
+    const dataToExport = filteredArmoryItems.map(item => ({
+      "סוג הפריט": item.itemTypeName || "לא ידוע",
+      "מספר סידורי": item.itemId,
+      "חייל מקושר": item.linkedSoldierName || "לא משויך",
+      "מספר אישי (חייל)": item.linkedSoldierId || "",
+      "פלוגה מקושרת": item.linkedSoldierDivisionName || "",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "פריטי נשקייה");
+    XLSX.writeFile(workbook, "armory_items_export.xlsx");
+    toast({ title: "הצלחה", description: "נתוני הנשקייה יוצאו ל-Excel."});
+  };
+
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
         <h1 className="text-3xl font-bold">ניהול נשקייה</h1>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExportToExcel} disabled={filteredArmoryItems.length === 0}>
+            <FileSpreadsheet className="ms-2 h-4 w-4" /> ייצא ל-Excel
+          </Button>
           <Dialog open={isItemTypeDialogOpen} onOpenChange={(isOpen) => {
             setIsItemTypeDialogOpen(isOpen);
             if (!isOpen) {
@@ -390,7 +413,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
               setIsItemDialogOpen(isOpen); 
               if (!isOpen) {
                 setEditingItem(null); 
-                itemForm.reset();
+                itemForm.reset({ itemTypeId: "", itemId: "", linkedSoldierId: NO_SOLDIER_LINKED_VALUE });
                 setScannedImagePreview(null);
                 if(fileInputRef.current) fileInputRef.current.value = "";
               }
@@ -440,7 +463,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                       name="linkedSoldierId"
                       control={itemForm.control}
                       render={({ field }) => (
-                        <Select onValueChange={field.onChange} value={field.value || ""} defaultValue={field.value || ""}>
+                        <Select onValueChange={field.onChange} value={field.value || NO_SOLDIER_LINKED_VALUE} defaultValue={field.value || NO_SOLDIER_LINKED_VALUE}>
                           <SelectTrigger id="linkedSoldierIdSelect">
                             <SelectValue placeholder="בחר חייל (אופציונלי)..." />
                           </SelectTrigger>
