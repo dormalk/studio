@@ -2,7 +2,7 @@
 "use server";
 
 import { db, storage } from "@/lib/firebase";
-import type { Soldier, SoldierDocument, Division } from "@/types";
+import type { Soldier, SoldierDocument, Division, ArmoryItem } from "@/types";
 import { 
   collection, 
   doc, 
@@ -13,7 +13,7 @@ import {
   getDoc, 
   serverTimestamp, 
   arrayUnion,
-  Timestamp,
+  Timestamp, // Added Timestamp import
   query,
   where,
   writeBatch
@@ -46,7 +46,7 @@ export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'do
     };
     await setDoc(soldierDocRef, newSoldierData);
     revalidatePath("/soldiers");
-    revalidatePath(`/divisions/${soldierData.divisionId}`);
+    if (soldierData.divisionId) revalidatePath(`/divisions/${soldierData.divisionId}`);
     
     let divisionName = "לא משויך";
     if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
@@ -72,7 +72,7 @@ export async function getSoldiers(): Promise<Soldier[]> {
         getDocs(divisionsCollection)
     ]);
     
-    const divisionsMap = new Map(divisionsSnapshot.docs.map(doc => [doc.id, doc.data().name as string]));
+    const divisionsMap = new Map(divisionsSnapshot.docs.map(docSnap => [docSnap.id, docSnap.data().name as string]));
 
     const soldiers = soldiersSnapshot.docs.map(docSnap => {
       const data = docSnap.data();
@@ -165,7 +165,8 @@ export async function getSoldiersByDivisionId(divisionId: string): Promise<Soldi
 export async function updateSoldier(soldierId: string, updates: Partial<Omit<Soldier, 'id' | 'divisionName' | 'documents'>>): Promise<void> {
   try {
     const soldierDoc = doc(db, "soldiers", soldierId);
-    const oldSoldierData = (await getDoc(soldierDoc)).data();
+    const oldSoldierDataSnap = await getDoc(soldierDoc);
+    const oldSoldierData = oldSoldierDataSnap.data();
 
 
     await updateDoc(soldierDoc, updates);
@@ -177,6 +178,8 @@ export async function updateSoldier(soldierId: string, updates: Partial<Omit<Sol
         if (oldSoldierData?.divisionId && oldSoldierData.divisionId !== "unassigned") {
             revalidatePath(`/divisions/${oldSoldierData.divisionId}`); 
         }
+    } else if (updates.divisionId === undefined && oldSoldierData?.divisionId) { // divisionId might be removed or name updated
+        revalidatePath(`/divisions/${oldSoldierData.divisionId}`);
     }
     revalidatePath("/divisions"); 
   } catch (error) {
@@ -210,16 +213,17 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
 
     // Unlink armory items
     const armoryItemsRef = collection(db, "armoryItems");
+    const batch = writeBatch(db);
+
+    // Unique items
     const qArmoryUnique = query(armoryItemsRef, where("linkedSoldierId", "==", soldierId));
     const armorySnapshotUnique = await getDocs(qArmoryUnique);
-    const batch = writeBatch(db);
     armorySnapshotUnique.forEach(itemDoc => {
         batch.update(itemDoc.ref, { linkedSoldierId: null }); 
     });
 
-    const qArmoryNonUnique = query(armoryItemsRef, where("assignments", "array-contains", { soldierId: soldierId })); // This is not a perfect query for nested array objects.
-                                                                                                                    // A more robust solution might involve fetching all non-unique items and filtering client-side or restructuring data.
-                                                                                                                    // For now, we will fetch all non-unique items and update them if they contain the soldier.
+    // Non-unique items (assignments)
+    // Fetch all non-unique items and filter/update their assignments array
     const allNonUniqueItemsSnapshot = await getDocs(query(armoryItemsRef, where("isUniqueItem", "==", false)));
     allNonUniqueItemsSnapshot.forEach(itemDoc => {
         const itemData = itemDoc.data() as ArmoryItem;
@@ -261,39 +265,37 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     const uploadTaskSnapshot = await uploadBytesResumable(storageRef, file);
     const downloadURL = await getDownloadURL(uploadTaskSnapshot.ref);
 
-    const newDocument: SoldierDocument = {
+    const newDocumentData: SoldierDocument = {
       id: uuidv4(), 
       fileName: file.name,
       storagePath: storagePath,
       downloadURL: downloadURL,
       fileType: file.type,
       fileSize: file.size,
-      uploadedAt: serverTimestamp() as Timestamp 
+      uploadedAt: Timestamp.now() // Use Timestamp.now() here
     };
 
     const soldierDocRef = doc(db, "soldiers", soldierId);
     await updateDoc(soldierDocRef, {
-      documents: arrayUnion(newDocument)
+      documents: arrayUnion(newDocumentData)
     });
 
     revalidatePath(`/soldiers/${soldierId}`);
-    revalidatePath("/soldiers"); // Revalidate all soldiers list if documents count might be displayed there
-     return {
-      ...newDocument,
-      uploadedAt: Timestamp.now() // For immediate UI update with actual timestamp
-    };
+    revalidatePath("/soldiers"); 
+     return newDocumentData; // Return the same object that was added to the array
 
   } catch (error) {
     console.error("Error uploading document: ", error);
-    if (error instanceof Error) { // Re-throw known errors or specific validation errors
-        // Check for Firebase Storage specific error codes
+    if (error instanceof Error) { 
         if ((error as any).code === 'storage/unauthorized') {
             throw new Error("שגיאת הרשאות בהעלאת הקובץ. אנא בדוק את חוקי האבטחה של Firebase Storage.");
         }
         if ((error as any).code === 'storage/canceled') {
             throw new Error("העלאת הקובץ בוטלה.");
         }
-        // Re-throw other Firebase errors or general errors
+        if (error.message.includes("arrayUnion() called with invalid data") || error.message.includes("serverTimestamp() can only be used with update() and set()")) {
+            throw new Error("שגיאת Firestore: נתונים לא תקינים בעת ניסיון הוספת המסמך למערך. נסה שוב.");
+        }
         throw error;
     }
     throw new Error("העלאת מסמך נכשלה עקב שגיאה לא צפויה.");
@@ -418,3 +420,4 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   return { successCount, errorCount, errors, addedSoldiers };
 }
+
