@@ -1,14 +1,14 @@
 
 "use client";
 
-import type { ArmoryItem, ArmoryItemType } from "@/types";
+import type { ArmoryItem, ArmoryItemType, Soldier } from "@/types";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Archive, Trash2, Edit3, Camera, ScanLine, Package, RefreshCw, Settings2, ListChecks } from "lucide-react";
+import { PlusCircle, Trash2, Edit3, Camera, RefreshCw, ListChecks, User, PackageSearch } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -35,9 +35,8 @@ import {
   updateArmoryItem, 
   scanArmoryItemImage,
   addArmoryItemType,
-  getArmoryItemTypes as fetchArmoryItemTypesServer, // Renamed to avoid conflict
+  deleteArmoryItemType,
   updateArmoryItemType,
-  deleteArmoryItemType
 } from "@/actions/armoryActions";
 import { useToast } from "@/hooks/use-toast";
 import Image from "next/image";
@@ -58,9 +57,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 const armoryItemSchema = z.object({
   name: z.string().min(1, "שם פריט הינו שדה חובה"),
   itemTypeId: z.string().min(1, "יש לבחור סוג פריט"),
-  itemId: z.string().optional(),
+  itemId: z.string().min(1, "מספר סריאלי הינו שדה חובה"), // Now mandatory
   description: z.string().optional(),
   photoDataUri: z.string().optional(),
+  linkedSoldierId: z.string().optional(),
 });
 
 const armoryItemTypeSchema = z.object({
@@ -73,11 +73,14 @@ type ArmoryItemTypeFormData = z.infer<typeof armoryItemTypeSchema>;
 interface ArmoryManagementClientProps {
   initialArmoryItems: ArmoryItem[];
   initialArmoryItemTypes: ArmoryItemType[];
+  initialSoldiers: Soldier[];
 }
 
-export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTypes }: ArmoryManagementClientProps) {
+export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTypes, initialSoldiers }: ArmoryManagementClientProps) {
   const [armoryItems, setArmoryItems] = useState<ArmoryItem[]>(initialArmoryItems);
   const [armoryItemTypes, setArmoryItemTypes] = useState<ArmoryItemType[]>(initialArmoryItemTypes);
+  const [soldiers, setSoldiers] = useState<Soldier[]>(initialSoldiers);
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [filterItemTypeId, setFilterItemTypeId] = useState<string>("all");
   const { toast } = useToast();
@@ -93,7 +96,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
   const itemForm = useForm<ArmoryItemFormData>({
     resolver: zodResolver(armoryItemSchema),
-    defaultValues: { name: "", itemTypeId: "", itemId: "", description: "" },
+    defaultValues: { name: "", itemTypeId: "", itemId: "", description: "", linkedSoldierId: "" },
   });
 
   const itemTypeForm = useForm<ArmoryItemTypeFormData>({
@@ -108,18 +111,23 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   useEffect(() => {
     setArmoryItemTypes(initialArmoryItemTypes.sort((a, b) => a.name.localeCompare(b.name)));
   }, [initialArmoryItemTypes]);
+  
+  useEffect(() => {
+    setSoldiers(initialSoldiers.sort((a,b) => a.name.localeCompare(b.name)));
+  }, [initialSoldiers]);
 
   useEffect(() => {
     if (editingItem) {
       itemForm.reset({
         name: editingItem.name,
         itemTypeId: editingItem.itemTypeId,
-        itemId: editingItem.itemId || "",
+        itemId: editingItem.itemId,
         description: editingItem.description || "",
+        linkedSoldierId: editingItem.linkedSoldierId || "",
       });
       setScannedImagePreview(editingItem.imageUrl || null);
     } else {
-      itemForm.reset({ name: "", itemTypeId: "", itemId: "", description: "" });
+      itemForm.reset({ name: "", itemTypeId: "", itemId: "", description: "", linkedSoldierId: "" });
       setScannedImagePreview(null);
     }
   }, [editingItem, itemForm, isItemDialogOpen]);
@@ -132,9 +140,6 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     }
   }, [editingItemType, itemTypeForm, isItemTypeDialogOpen]);
 
-  const itemTypeDisplayOptions = useMemo(() => {
-    return ["all", ...armoryItemTypes.map(type => type.id)];
-  }, [armoryItemTypes]);
 
   const filteredArmoryItems = useMemo(() => {
     return armoryItems.filter(item =>
@@ -154,17 +159,15 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         setScannedImagePreview(dataUri);
         itemForm.setValue("photoDataUri", dataUri);
         try {
-          const result = await scanArmoryItemImage(dataUri); // result: { itemType: string, itemId: string }
-          // itemForm.setValue("type", result.itemType); // Old way
+          const result = await scanArmoryItemImage(dataUri);
           itemForm.setValue("itemId", result.itemId);
 
           const matchedType = armoryItemTypes.find(type => type.name.toLowerCase() === result.itemType.toLowerCase());
           if (matchedType) {
             itemForm.setValue("itemTypeId", matchedType.id);
-            toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}, מזהה: ${result.itemId}` });
+            toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}, מספר סריאלי: ${result.itemId}` });
           } else {
-            toast({ variant: "default", title: "סריקה - נדרשת פעולה", description: `מזהה זוהה: ${result.itemId}. סוג פריט '${result.itemType}' לא נמצא ברשימה. אנא בחר סוג קיים או הוסף אותו.` });
-            // Leave itemTypeId empty for user to select or add.
+            toast({ variant: "default", title: "סריקה - נדרשת פעולה", description: `מספר סריאלי זוהה: ${result.itemId}. סוג פריט '${result.itemType}' לא נמצא ברשימה. אנא בחר סוג קיים או הוסף אותו.` });
           }
         } catch (error: any) {
           toast({ variant: "destructive", title: "שגיאת סריקה", description: error.message || "זיהוי הפריט נכשל." });
@@ -178,37 +181,30 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
   const handleAddOrUpdateItem = async (values: ArmoryItemFormData) => {
     try {
-      const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'imageUrl' | 'createdAt'> & { imageUrl?: string } = {
+      const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'imageUrl' | 'createdAt'> & { imageUrl?: string } = {
         name: values.name,
         itemTypeId: values.itemTypeId,
         itemId: values.itemId,
         description: values.description,
+        linkedSoldierId: values.linkedSoldierId || undefined, // Ensure it's undefined if empty string
       };
-      // Image handling (if direct upload was implemented, this would change)
-      // For this example, imageUrl from scannedPreview or editingItem is used.
-      // If a real image upload service were used, dataToSave.imageUrl would be set to the uploaded image URL.
-      // Currently, we're not persisting the image if it's just a local data URI for scanning.
-      // We only keep existing imageUrls if editing.
+      
       if (editingItem?.imageUrl) {
         dataToSave.imageUrl = editingItem.imageUrl;
       }
-      // if (scannedImagePreview && scannedImagePreview.startsWith('data:image')) {
-      // This is where you'd handle image upload and get back a URL.
-      // For now, we're not saving the scanned image itself to Firestore as imageUrl
-      // unless it was already there on an `editingItem`.
-      // }
 
       let updatedOrNewItem;
+      const itemTypeName = armoryItemTypes.find(t => t.id === dataToSave.itemTypeId)?.name || "לא ידוע";
+      const linkedSoldierName = dataToSave.linkedSoldierId ? soldiers.find(s => s.id === dataToSave.linkedSoldierId)?.name : undefined;
+
       if (editingItem) {
         await updateArmoryItem(editingItem.id, dataToSave);
-        const itemTypeName = armoryItemTypes.find(t => t.id === dataToSave.itemTypeId)?.name || "לא ידוע";
-        updatedOrNewItem = { ...editingItem, ...dataToSave, itemTypeName };
+        updatedOrNewItem = { ...editingItem, ...dataToSave, itemTypeName, linkedSoldierName };
         setArmoryItems(prev => prev.map(item => item.id === editingItem.id ? updatedOrNewItem : item));
         toast({ title: "הצלחה", description: "פרטי הפריט עודכנו." });
       } else {
-        const newItemServer = await addArmoryItem(dataToSave); // Returns Omit<ArmoryItem, 'itemTypeName'>
-        const itemTypeName = armoryItemTypes.find(t => t.id === newItemServer.itemTypeId)?.name || "לא ידוע";
-        updatedOrNewItem = { ...newItemServer, itemTypeName };
+        const newItemServer = await addArmoryItem(dataToSave);
+        updatedOrNewItem = { ...newItemServer, itemTypeName, linkedSoldierName };
         setArmoryItems(prev => [...prev, updatedOrNewItem]);
         toast({ title: "הצלחה", description: "פריט נוסף בהצלחה." });
       }
@@ -237,7 +233,6 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     setIsItemDialogOpen(true);
   };
 
-  // Item Type Management Handlers
   const handleAddOrUpdateItemType = async (values: ArmoryItemTypeFormData) => {
     try {
       if (editingItemType) {
@@ -245,7 +240,6 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         setArmoryItemTypes(prev => 
           prev.map(t => t.id === editingItemType.id ? { ...t, ...values } : t).sort((a,b) => a.name.localeCompare(b.name))
         );
-        // Also update itemTypeName in existing armoryItems state
         setArmoryItems(prevItems => prevItems.map(item => 
             item.itemTypeId === editingItemType.id ? { ...item, itemTypeName: values.name } : item
         ));
@@ -257,8 +251,6 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       }
       itemTypeForm.reset();
       setEditingItemType(null);
-      // Keep dialog open if user wants to add more, or close:
-      // setIsItemTypeDialogOpen(false); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "פעולה נכשלה." });
     }
@@ -276,8 +268,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
   const openEditItemTypeDialog = (itemType: ArmoryItemType) => {
     setEditingItemType(itemType);
-    itemTypeForm.reset({ name: itemType.name }); // Ensure form is reset with current type
-    // setIsItemTypeDialogOpen(true); // Dialog should already be open
+    itemTypeForm.reset({ name: itemType.name });
   };
 
 
@@ -413,10 +404,32 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                     {itemForm.formState.errors.itemTypeId && <p className="text-destructive text-sm">{itemForm.formState.errors.itemTypeId.message}</p>}
                   </div>
                 </div>
-                <div>
-                  <Label htmlFor="itemId">מזהה פריט (סריאלי)</Label>
-                  <Input id="itemId" {...itemForm.register("itemId")} />
-                  {itemForm.formState.errors.itemId && <p className="text-destructive text-sm">{itemForm.formState.errors.itemId.message}</p>}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="itemId">מספר סריאלי</Label>
+                    <Input id="itemId" {...itemForm.register("itemId")} />
+                    {itemForm.formState.errors.itemId && <p className="text-destructive text-sm">{itemForm.formState.errors.itemId.message}</p>}
+                  </div>
+                  <div>
+                    <Label htmlFor="linkedSoldierIdSelect">שייך לחייל</Label>
+                    <Controller
+                      name="linkedSoldierId"
+                      control={itemForm.control}
+                      render={({ field }) => (
+                        <Select onValueChange={field.onChange} value={field.value || ""} defaultValue={field.value || ""}>
+                          <SelectTrigger id="linkedSoldierIdSelect">
+                            <SelectValue placeholder="בחר חייל (אופציונלי)..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">ללא שיוך</SelectItem>
+                            {soldiers.map(soldier => (
+                              <SelectItem key={soldier.id} value={soldier.id}>{soldier.name} ({soldier.id})</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
                 </div>
                 <div>
                   <Label htmlFor="itemDescription">תיאור</Label>
@@ -453,7 +466,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       <div className="flex flex-col sm:flex-row gap-4 items-center">
         <Input
           type="search"
-          placeholder="חפש פריט לפי שם או מזהה..."
+          placeholder="חפש פריט לפי שם או מספר סריאלי..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="max-w-xs"
@@ -484,14 +497,18 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-40 w-full mb-2 rounded-md bg-muted">
-                    <Package className="w-16 h-16 text-muted-foreground" />
+                    <PackageSearch className="w-16 h-16 text-muted-foreground" />
                   </div>
                 )}
                 <CardTitle>{item.name}</CardTitle>
                 <CardDescription>סוג: {item.itemTypeName || "לא צוין"}</CardDescription>
               </CardHeader>
-              <CardContent className="flex-grow">
-                {item.itemId && <p className="text-sm">מזהה: <span className="font-semibold">{item.itemId}</span></p>}
+              <CardContent className="flex-grow space-y-1">
+                <p className="text-sm">מספר סריאלי: <span className="font-semibold">{item.itemId}</span></p>
+                {item.linkedSoldierName && (
+                  <p className="text-sm flex items-center"><User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל: <span className="font-semibold ms-1">{item.linkedSoldierName}</span></p>
+                )}
+                {!item.linkedSoldierId && <p className="text-sm text-muted-foreground flex items-center"><User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" />לא משויך לחייל</p>}
                 {item.description && <p className="text-sm text-muted-foreground mt-1">{item.description}</p>}
               </CardContent>
               <CardFooter className="flex justify-end gap-2">
@@ -506,7 +523,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                         <AlertDialogHeader>
                         <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
                         <AlertDialogDescription>
-                            האם אתה בטוח שברצונך למחוק את הפריט "{item.name}"?
+                            האם אתה בטוח שברצונך למחוק את הפריט "{item.name}" (סריאלי: {item.itemId})?
                         </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>

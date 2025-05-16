@@ -15,13 +15,10 @@ const armoryItemTypesCollection = collection(db, "armoryItemTypes");
 // Add a new armory item type
 export async function addArmoryItemType(itemTypeData: { name: string }): Promise<ArmoryItemType> {
   try {
-    // Check if type with this name already exists (case insensitive for robustness)
     const q = query(armoryItemTypesCollection, where("name", "==", itemTypeData.name));
     const existingTypesSnapshot = await getDocs(q);
     if (!existingTypesSnapshot.empty) {
-      // A more robust check would be to convert both to lowercase and compare
-      // For simplicity, direct match or consider client-side validation for case.
-      // This example allows duplicates if case is different, improve if needed.
+      // Consider improving robustness for case-insensitivity if needed
       // throw new Error(`סוג פריט בשם "${itemTypeData.name}" כבר קיים.`);
     }
 
@@ -40,7 +37,7 @@ export async function getArmoryItemTypes(): Promise<ArmoryItemType[]> {
   try {
     const querySnapshot = await getDocs(armoryItemTypesCollection);
     const types = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ArmoryItemType));
-    return types.sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically
+    return types.sort((a, b) => a.name.localeCompare(b.name)); 
   } catch (error) {
     console.error("Error fetching armory item types: ", error);
     return [];
@@ -50,7 +47,6 @@ export async function getArmoryItemTypes(): Promise<ArmoryItemType[]> {
 // Update an armory item type
 export async function updateArmoryItemType(id: string, updates: { name: string }): Promise<void> {
   try {
-    // Optional: Check if new name conflicts with another existing type
     const itemTypeDoc = doc(db, "armoryItemTypes", id);
     await updateDoc(itemTypeDoc, updates);
     revalidatePath("/armory");
@@ -63,7 +59,6 @@ export async function updateArmoryItemType(id: string, updates: { name: string }
 // Delete an armory item type
 export async function deleteArmoryItemType(id: string): Promise<void> {
   try {
-    // Check if this type is used by any armory items
     const q = query(armoryCollection, where("itemTypeId", "==", id));
     const usageSnapshot = await getDocs(q);
     if (!usageSnapshot.empty) {
@@ -84,38 +79,37 @@ export async function deleteArmoryItemType(id: string): Promise<void> {
 // Armory Item Actions
 
 // Add a new armory item
-export async function addArmoryItem(itemData: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'createdAt'>): Promise<ArmoryItem> {
+export async function addArmoryItem(itemData: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'createdAt'>): Promise<ArmoryItem> {
   try {
     const docRef = await addDoc(armoryCollection, {
       ...itemData,
       createdAt: serverTimestamp(),
     });
     revalidatePath("/armory");
-    // itemTypeName will be populated by getArmoryItems or on client
-    return { id: docRef.id, ...itemData, itemTypeName: "" }; // itemTypeName placeholder
+    // itemTypeName and linkedSoldierName will be populated by getArmoryItems or on client
+    return { id: docRef.id, ...itemData, itemTypeName: "", linkedSoldierName: "" }; // Placeholder for denormalized fields
   } catch (error) {
     console.error("Error adding armory item: ", error);
     throw new Error("הוספת פריט נכשלה.");
   }
 }
 
-// Get all armory items (itemTypeName will be enriched by the page component)
-export async function getArmoryItems(): Promise<Omit<ArmoryItem, 'itemTypeName'>[]> {
+// Get all armory items (itemTypeName and linkedSoldierName will be enriched by the page component)
+export async function getArmoryItems(): Promise<Omit<ArmoryItem, 'itemTypeName' | 'linkedSoldierName'>[]> {
   try {
     const querySnapshot = await getDocs(armoryCollection);
-    // const items = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Omit<ArmoryItem, 'itemTypeName'>));
     const items = querySnapshot.docs.map(docSnapshot => {
         const data = docSnapshot.data();
-        // Ensure itemTypeId is present, default to a placeholder if not (should not happen with proper data entry)
         return { 
             id: docSnapshot.id, 
             name: data.name || "שם לא ידוע",
             itemTypeId: data.itemTypeId || "unknown_type_id", 
-            itemId: data.itemId,
+            itemId: data.itemId || "N/A", // Serial number, should be present
             description: data.description,
             imageUrl: data.imageUrl,
+            linkedSoldierId: data.linkedSoldierId,
             // photoDataUri is client-side only, createdAt is a Timestamp
-        } as Omit<ArmoryItem, 'itemTypeName' | 'photoDataUri' | 'createdAt'>; 
+        } as Omit<ArmoryItem, 'itemTypeName' | 'linkedSoldierName' | 'photoDataUri' | 'createdAt'>; 
     });
     return items;
   } catch (error) {
@@ -125,7 +119,7 @@ export async function getArmoryItems(): Promise<Omit<ArmoryItem, 'itemTypeName'>
 }
 
 // Update an armory item
-export async function updateArmoryItem(id: string, updates: Partial<Omit<ArmoryItem, 'id' | 'itemTypeName' | 'createdAt'>>): Promise<void> {
+export async function updateArmoryItem(id: string, updates: Partial<Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'createdAt'>>): Promise<void> {
   try {
     const itemDoc = doc(db, "armoryItems", id);
     await updateDoc(itemDoc, updates);
@@ -152,7 +146,7 @@ export async function deleteArmoryItem(id: string): Promise<void> {
 export async function scanArmoryItemImage(photoDataUri: string): Promise<{ itemType: string; itemId: string }> {
   try {
     const result = await scanArmoryItemAI({ photoDataUri });
-    return result; // AI returns itemType (string name) and itemId
+    return result; 
   } catch (error) {
     console.error("Error scanning armory item image: ", error);
     throw new Error("סריקת תמונת פריט נכשלה.");

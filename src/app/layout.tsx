@@ -5,9 +5,6 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import Providers from '@/components/providers';
 
-const geistSans = GeistSans;
-const geistMono = GeistMono;
-
 export const metadata: Metadata = {
   title: 'מנהל צה"ל',
   description: 'אפליקציה לניהול חיילים וציוד צבאי',
@@ -20,7 +17,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="he" dir="rtl">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}>
         <Providers>
           {children}
           <Toaster />
