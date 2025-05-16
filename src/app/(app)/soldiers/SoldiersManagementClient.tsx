@@ -1,13 +1,13 @@
 
 "use client";
 
-import type { Soldier, Division } from "@/types";
-import { useState, useEffect, useMemo, type DragEvent } from "react";
+import type { Soldier, Division, SoldierDocument } from "@/types";
+import { useState, useEffect, useMemo, type DragEvent, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, User, Trash2, Edit3, GripVertical, Users, Undo2 } from "lucide-react";
+import { PlusCircle, User, Trash2, Edit3, GripVertical, Users, Undo2, Upload, FileText, Download, FileX2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,7 @@ import {
   DialogTrigger,
   DialogFooter,
   DialogClose,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -27,10 +28,18 @@ import {
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { addSoldier, transferSoldier, deleteSoldier, updateSoldier } from "@/actions/soldierActions";
+import { 
+  addSoldier, 
+  transferSoldier, 
+  deleteSoldier, 
+  updateSoldier,
+  uploadSoldierDocument,
+  deleteSoldierDocument
+} from "@/actions/soldierActions";
 import { addDivision, deleteDivision, updateDivision } from "@/actions/divisionActions";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +51,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import type { Timestamp } from "firebase/firestore";
 
 const soldierSchema = z.object({
   id: z.string().min(1, "ת.ז. הינו שדה חובה").regex(/^\d+$/, "ת.ז. חייבת להכיל מספרים בלבד"),
@@ -70,7 +80,11 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
   const [editingSoldier, setEditingSoldier] = useState<Soldier | null>(null);
   const [editingDivision, setEditingDivision] = useState<Division | null>(null);
 
-  const [focusedSourceId, setFocusedSourceId] = useState<string | null>(null); // Can be divisionId or "unassigned"
+  const [focusedSourceId, setFocusedSourceId] = useState<string | null>(null); 
+
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const soldierForm = useForm<z.infer<typeof soldierSchema>>({
     resolver: zodResolver(soldierSchema),
@@ -100,6 +114,9 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     } else {
       soldierForm.reset({ id: "", name: "", divisionId: "" });
     }
+    setSelectedFile(null); // Reset file input when dialog opens/changes soldier
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
   }, [editingSoldier, soldierForm, isSoldierDialogOpen]);
 
   useEffect(() => {
@@ -117,7 +134,6 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     });
     grouped["unassigned"] = [];
 
-    // Apply global search term filter first if not focused
     const soldiersToGroup = focusedSourceId ? soldiers : soldiers.filter(soldier =>
         soldier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         soldier.id.includes(searchTerm)
@@ -131,7 +147,7 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
       }
     });
     return grouped;
-  }, [soldiers, divisions, searchTerm, focusedSourceId]); // searchTerm dependency removed here, will be applied in focused view or globally
+  }, [soldiers, divisions, searchTerm, focusedSourceId]); 
 
   const focusedSourceDetails = useMemo(() => {
     if (!focusedSourceId || focusedSourceId === "unassigned") return null;
@@ -147,8 +163,8 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
   const soldiersInFocusedSource = useMemo(() => {
     if (!focusedSourceId) return [];
     const sourceSoldiers = soldiersByDivision[focusedSourceId] || [];
-    if (!searchTerm) return sourceSoldiers; // If no search term, return all from focused source
-    return sourceSoldiers.filter(soldier => // Apply search term if present
+    if (!searchTerm) return sourceSoldiers; 
+    return sourceSoldiers.filter(soldier => 
       soldier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       soldier.id.includes(searchTerm)
     );
@@ -157,21 +173,33 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
 
   const handleAddOrUpdateSoldier = async (values: z.infer<typeof soldierSchema>) => {
     try {
-      let updatedSoldier;
+      let updatedOrNewSoldier: Soldier;
       if (editingSoldier) {
-        await updateSoldier(editingSoldier.id, values);
-        updatedSoldier = { ...editingSoldier, ...values };
-        setSoldiers(prev => prev.map(s => s.id === updatedSoldier!.id ? updatedSoldier! : s));
+        await updateSoldier(editingSoldier.id, {name: values.name, divisionId: values.divisionId});
+         updatedOrNewSoldier = { 
+            ...editingSoldier, 
+            ...values, 
+            divisionName: divisions.find(d => d.id === values.divisionId)?.name || "לא משויך",
+            // documents are handled separately
+        };
+        setSoldiers(prev => prev.map(s => s.id === updatedOrNewSoldier!.id ? updatedOrNewSoldier! : s));
         toast({ title: "הצלחה", description: "פרטי החייל עודכנו." });
+        // Keep dialog open for document management
       } else {
-        const newSoldier = await addSoldier(values);
-        updatedSoldier = { ...newSoldier, divisionName: divisions.find(d => d.id === newSoldier.divisionId)?.name || "לא משויך" };
-        setSoldiers(prev => [...prev, updatedSoldier!]);
+        const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
+        updatedOrNewSoldier = { 
+            ...newSoldierServerData, 
+            divisionName: divisions.find(d => d.id === newSoldierServerData.divisionId)?.name || "לא משויך",
+            documents: [] // Ensure documents array exists for new soldier
+        };
+        setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
         toast({ title: "הצלחה", description: "חייל נוסף בהצלחה." });
+        // For new soldier, if we want to manage docs immediately, we'd setEditingSoldier(updatedOrNewSoldier)
+        // For now, let's close for new, and keep open for edit
+        setEditingSoldier(updatedOrNewSoldier); // Set for document management
+        // setIsSoldierDialogOpen(false);
+        // soldierForm.reset();
       }
-      setIsSoldierDialogOpen(false);
-      setEditingSoldier(null);
-      soldierForm.reset();
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת חייל נכשלה." });
     }
@@ -261,6 +289,73 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
     setIsDivisionDialogOpen(true);
   };
 
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSelectedFile(event.target.files?.[0] || null);
+  };
+
+  const handleDocumentUpload = async () => {
+    if (!selectedFile || !editingSoldier) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+
+    try {
+      const newDocument = await uploadSoldierDocument(editingSoldier.id, formData);
+      // Update local state for the editing soldier
+      setEditingSoldier(prev => {
+        if (!prev) return null;
+        const updatedDocs = [...(prev.documents || []), newDocument];
+        return { ...prev, documents: updatedDocs };
+      });
+      // Update the main soldiers list as well
+      setSoldiers(prevSoldiers => prevSoldiers.map(s => 
+        s.id === editingSoldier.id 
+          ? { ...s, documents: [...(s.documents || []), newDocument] } 
+          : s
+      ));
+      toast({ title: "הצלחה", description: `מסמך '${newDocument.fileName}' הועלה בהצלחה.` });
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה." });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDocumentDelete = async (documentId: string, storagePath: string) => {
+    if (!editingSoldier) return;
+    try {
+      await deleteSoldierDocument(editingSoldier.id, documentId, storagePath);
+      const updatedDocs = editingSoldier.documents?.filter(doc => doc.id !== documentId);
+      setEditingSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null);
+      setSoldiers(prevSoldiers => prevSoldiers.map(s => 
+        s.id === editingSoldier.id 
+          ? { ...s, documents: updatedDocs } 
+          : s
+      ));
+      toast({ title: "הצלחה", description: "המסמך נמחק." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
+    }
+  };
+
+  const formatFileSize = (bytes: number, decimals = 2) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  }
+
+  const formatDate = (timestamp: Timestamp | Date) => {
+    if (!timestamp) return 'N/A';
+    const date = timestamp instanceof Date ? timestamp : (timestamp as Timestamp).toDate();
+    return date.toLocaleDateString('he-IL');
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -274,13 +369,27 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
               חזור לכל הפלוגות
             </Button>
           )}
-          <Dialog open={isSoldierDialogOpen} onOpenChange={(isOpen) => { setIsSoldierDialogOpen(isOpen); if (!isOpen) setEditingSoldier(null); }}>
+          <Dialog 
+            open={isSoldierDialogOpen} 
+            onOpenChange={(isOpen) => { 
+              setIsSoldierDialogOpen(isOpen); 
+              if (!isOpen) {
+                setEditingSoldier(null);
+                soldierForm.reset();
+                setSelectedFile(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button><PlusCircle className="ms-2 h-4 w-4" /> הוסף חייל</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-[625px]"> {/* Increased width for documents */}
               <DialogHeader>
                 <DialogTitle>{editingSoldier ? "ערוך פרטי חייל" : "הוסף חייל חדש"}</DialogTitle>
+                <DialogDescription>
+                  {editingSoldier ? "עדכן את פרטי החייל ונהל את מסמכיו." : "לאחר הוספת החייל, תוכל לנהל את מסמכיו בעריכה."}
+                </DialogDescription>
               </DialogHeader>
               <form onSubmit={soldierForm.handleSubmit(handleAddOrUpdateSoldier)} className="space-y-4">
                 <div>
@@ -315,10 +424,88 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
                   {soldierForm.formState.errors.divisionId && <p className="text-destructive text-sm">{soldierForm.formState.errors.divisionId.message}</p>}
                 </div>
                 <DialogFooter>
-                  <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
-                  <Button type="submit">{editingSoldier ? "שמור שינויים" : "הוסף חייל"}</Button>
+                  {/* No close button here, will be at the very bottom */}
+                  <Button type="submit">{editingSoldier ? "שמור שינויים בפרטים" : "הוסף חייל והמשך למסמכים"}</Button>
                 </DialogFooter>
               </form>
+
+              {editingSoldier && (
+                <>
+                  <Separator className="my-6" />
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">מסמכים מצורפים</h3>
+                    <div className="space-y-2">
+                      <Label htmlFor="soldierDocument">העלאת מסמך חדש</Label>
+                      <div className="flex items-center gap-2">
+                        <Input 
+                          id="soldierDocument" 
+                          type="file" 
+                          ref={fileInputRef}
+                          onChange={handleFileChange} 
+                          className="flex-grow"
+                        />
+                        <Button type="button" onClick={handleDocumentUpload} disabled={!selectedFile || isUploading}>
+                          {isUploading ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
+                          העלה
+                        </Button>
+                      </div>
+                    </div>
+
+                    {editingSoldier.documents && editingSoldier.documents.length > 0 ? (
+                      <ScrollArea className="h-[200px] border rounded-md p-2">
+                        <ul className="space-y-2">
+                          {editingSoldier.documents.map((doc) => (
+                            <li key={doc.id} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded">
+                              <div className="flex items-center gap-2">
+                                <FileText className="h-5 w-5 text-muted-foreground" />
+                                <div>
+                                  <a href={doc.downloadURL} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
+                                    {doc.fileName}
+                                  </a>
+                                  <p className="text-xs text-muted-foreground">
+                                    {formatFileSize(doc.fileSize)} | {doc.fileType} | הועלה: {formatDate(doc.uploadedAt)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex gap-1">
+                                <Button variant="ghost" size="icon" asChild className="h-7 w-7">
+                                  <a href={doc.downloadURL} target="_blank" rel="noopener noreferrer" download={doc.fileName}>
+                                    <Download className="h-4 w-4" />
+                                  </a>
+                                </Button>
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7">
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>אישור מחיקת מסמך</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        האם אתה בטוח שברצונך למחוק את המסמך "{doc.fileName}"? פעולה זו אינה הפיכה.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>ביטול</AlertDialogCancel>
+                                      <AlertDialogAction onClick={() => handleDocumentDelete(doc.id, doc.storagePath)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </ScrollArea>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">אין מסמכים מצורפים לחייל זה.</p>
+                    )}
+                  </div>
+                </>
+              )}
+              <DialogFooter className="mt-6">
+                <DialogClose asChild><Button variant="outline">סגור</Button></DialogClose>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
 
@@ -428,7 +615,25 @@ export function SoldiersManagementClient({ initialSoldiers, initialDivisions }: 
                       </div>
                       <CardDescription>ת.ז. {soldier.id}</CardDescription>
                   </CardHeader>
-                  {/* Add CardContent if more details are to be shown */}
+                   <CardContent className="flex-grow">
+                    {soldier.documents && soldier.documents.length > 0 ? (
+                      <>
+                        <p className="text-xs font-medium mt-2 mb-1">מסמכים ({soldier.documents.length}):</p>
+                        <ul className="space-y-1">
+                          {soldier.documents.slice(0, 3).map(doc => ( // Show first 3 docs
+                            <li key={doc.id} className="text-xs text-muted-foreground truncate">
+                              <a href={doc.downloadURL} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                                <FileText className="inline h-3 w-3 me-1" />{doc.fileName}
+                              </a>
+                            </li>
+                          ))}
+                          {soldier.documents.length > 3 && <li className="text-xs text-muted-foreground">ועוד...</li>}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-2">אין מסמכים מצורפים.</p>
+                    )}
+                  </CardContent>
                 </Card>
               ))}
             </div>
