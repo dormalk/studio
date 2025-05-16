@@ -257,7 +257,7 @@ export function SoldierDetailClient({
     try {
       const newDocument = await uploadSoldierDocument(soldier.id, formData);
       setSoldier(prev => {
-        if (!prev) return prev;
+        if (!prev) return prev; // Should not happen if soldier is loaded
         const updatedDocs = [...(prev.documents || []), newDocument];
         return { ...prev, documents: updatedDocs };
       });
@@ -266,14 +266,8 @@ export function SoldierDetailClient({
       setEditableFileName("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
-      let errorMessage = "העלאת מסמך נכשלה.";
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
       console.error("Client-side document upload error details:", error);
-      toast({ variant: "destructive", title: "שגיאת העלאה", description: errorMessage });
+      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה." });
     } finally {
       setIsUploading(false);
     }
@@ -284,26 +278,21 @@ export function SoldierDetailClient({
     try {
       await deleteSoldierDocument(soldier.id, documentId, storagePath);
       const updatedDocs = soldier.documents?.filter(doc => doc.id !== documentId);
-      setSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null);
+      setSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null); // Should not be null
       toast({ title: "הצלחה", description: "המסמך נמחק." });
     } catch (error: any) {
-      let errorMessage = "מחיקת מסמך נכשלה.";
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
       console.error("Client-side document delete error details:", error);
-      toast({ variant: "destructive", title: "שגיאת מחיקה", description: errorMessage });
+      toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
     }
   };
 
   const handleUpdateSoldierDetails = async (values: SoldierDetailsFormData) => {
+    if (!soldier) return;
     try {
         await updateSoldier(soldier.id, { name: values.name, divisionId: values.divisionId });
         const updatedDivision = allDivisions.find(d => d.id === values.divisionId);
         setSoldier(prev => ({
-            ...prev!,
+            ...prev!, // soldier is guaranteed to be non-null here
             name: values.name,
             divisionId: values.divisionId,
             divisionName: updatedDivision?.name || "לא משויך"
@@ -330,22 +319,31 @@ export function SoldierDetailClient({
           const currentItemTypeId = addUniqueArmoryItemForm.getValues("itemTypeId");
           const currentItemType = allArmoryItemTypes.find(t => t.id === currentItemTypeId);
 
+          // Only set itemId from scan if the selected/current type is unique
           if (currentItemType && currentItemType.isUnique) {
             addUniqueArmoryItemForm.setValue("itemId", result.itemId);
-          } else if (!currentItemType) {
+          } else if (!currentItemType && selectedItemTypeForSoldierPageIsUnique === true) { 
+             // If no type is selected yet, but we expect a unique one (based on dialog context)
              addUniqueArmoryItemForm.setValue("itemId", result.itemId);
           }
 
           const matchedType = allArmoryItemTypes.find(type => type.name.toLowerCase() === result.itemType.toLowerCase());
           if (matchedType) {
-            addUniqueArmoryItemForm.setValue("itemTypeId", matchedType.id);
-            setSelectedItemTypeForSoldierPageIsUnique(matchedType.isUnique);
-             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = matchedType.isUnique;
-            addUniqueArmoryItemForm.trigger();
-
-            toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}${matchedType.isUnique ? `, מספר סריאלי: ${result.itemId}` : ''}` });
+            if (matchedType.isUnique) { // Only auto-select if scanned type is unique
+                addUniqueArmoryItemForm.setValue("itemTypeId", matchedType.id);
+                setSelectedItemTypeForSoldierPageIsUnique(matchedType.isUnique);
+                (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = matchedType.isUnique;
+                if (matchedType.isUnique) { // Also ensure itemId is set if the auto-selected type is unique
+                    addUniqueArmoryItemForm.setValue("itemId", result.itemId);
+                }
+                addUniqueArmoryItemForm.trigger(["itemTypeId", "itemId"]);
+                toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}, מספר סריאלי: ${result.itemId}` });
+            } else {
+                // If scanned type is not unique, don't auto-select it in this dialog meant for unique items
+                toast({ variant: "default", title: "סריקה - מידע נוסף", description: `זוהה מספר סריאלי: ${result.itemId}. סוג הפריט '${result.itemType}' שזוהה אינו ייחודי. יש לבחור סוג פריט ייחודי מהרשימה.` });
+            }
           } else {
-             toast({ variant: "default", title: "סריקה - נדרשת פעולה", description: `מספר סריאלי זוהה: ${result.itemId}. סוג פריט '${result.itemType}' לא נמצא ברשימה. אנא בחר סוג קיים.` });
+             toast({ variant: "default", title: "סריקה - נדרשת פעולה", description: `מספר סריאלי זוהה: ${result.itemId}. סוג פריט '${result.itemType}' לא נמצא ברשימה. אנא בחר סוג ייחודי קיים.` });
           }
         } catch (error: any) {
           toast({ variant: "destructive", title: "שגיאת סריקה", description: error.message || "זיהוי הפריט נכשל." });
@@ -358,13 +356,14 @@ export function SoldierDetailClient({
   };
 
   const handleAddArmoryItemToSoldier = async (values: ArmoryItemFormDataOnSoldierPage) => {
+    if (!soldier) return;
     const type = allArmoryItemTypes.find(t => t.id === values.itemTypeId);
     if (!type) {
       toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט חוקי." });
       return;
     }
-    if (!type.isUnique) { // Ensure only unique items are added this way
-        toast({ variant: "destructive", title: "שגיאה", description: "ניתן להוסיף ולשייך רק פריטים ייחודיים ישירות לחייל." });
+    if (!type.isUnique) { 
+        toast({ variant: "destructive", title: "שגיאה", description: "ניתן להוסיף ולשייך רק פריטים ייחודיים ישירות לחייל דרך טופס זה." });
         return;
     }
     (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type.isUnique;
@@ -381,7 +380,7 @@ export function SoldierDetailClient({
     try {
       const dataToSave: Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt' | 'totalQuantity' | 'assignments' | '_currentSoldierAssignedQuantity'> = {
         itemTypeId: validatedValues.itemTypeId,
-        isUniqueItem: true, // Explicitly true
+        isUniqueItem: true, 
         itemId: validatedValues.itemId,
         linkedSoldierId: soldier.id,
         imageUrl: validatedValues.photoDataUri || undefined,
@@ -399,8 +398,6 @@ export function SoldierDetailClient({
         linkedSoldierName: soldier.name,
         linkedSoldierDivisionName: soldier.divisionName,
         imageUrl: newItemServer.imageUrl,
-        totalQuantity: undefined, // Not for unique items
-        assignments: undefined, // Not for unique items
       };
 
       setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
@@ -413,13 +410,14 @@ export function SoldierDetailClient({
   };
 
   const handleAssignNonUniqueItem = async (values: AssignNonUniqueFormData) => {
+    if (!soldier) return;
     try {
         await manageSoldierAssignmentToNonUniqueItem(values.selectedArmoryItemId, soldier.id, values.quantityToAssign);
 
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
 
-        const allItems = await getArmoryItems();
+        const allItems = await getArmoryItems(); // Fetch all items to refresh availableNonUniqueItems
         const updatedAvailableNonUnique = allItems.filter(item => !item.isUniqueItem).map(item => {
             const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
             return { ...item, availableQuantity: (item.totalQuantity || 0) - totalAssigned };
@@ -434,7 +432,7 @@ export function SoldierDetailClient({
   };
 
   const handleUpdateAssignedQuantity = async (values: UpdateAssignedQuantityFormData) => {
-    if (!itemToUpdateAssignment) return;
+    if (!itemToUpdateAssignment || !soldier) return;
     try {
         await manageSoldierAssignmentToNonUniqueItem(itemToUpdateAssignment.id, soldier.id, values.newQuantity);
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
@@ -455,8 +453,9 @@ export function SoldierDetailClient({
   };
 
   const handleUnassignNonUniqueItem = async (itemIdToUnassign: string) => {
+     if (!soldier) return;
      try {
-        await manageSoldierAssignmentToNonUniqueItem(itemIdToUnassign, soldier.id, 0);
+        await manageSoldierAssignmentToNonUniqueItem(itemIdToUnassign, soldier.id, 0); // Set quantity to 0 to unassign
         const updatedSoldierItems = await getArmoryItemsBySoldierId(soldier.id);
         setArmoryItemsForSoldier(updatedSoldierItems);
 
@@ -492,14 +491,15 @@ export function SoldierDetailClient({
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
+      // Handle Firestore Timestamp object
       date = (timestampInput as any).toDate();
     } else {
-      // console.warn("Invalid date input to formatDate:", timestampInput);
+      console.warn("Invalid date input to formatDate:", timestampInput);
       return 'תאריך לא תקין';
     }
 
     if (isNaN(date.getTime())) {
-      // console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
+      console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
       return 'תאריך לא תקין';
     }
     return date.toLocaleDateString('he-IL');
@@ -693,7 +693,7 @@ export function SoldierDetailClient({
                                                     setSelectedItemTypeForSoldierPageIsUnique(type ? type.isUnique : null);
                                                     (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type ? type.isUnique : null;
                                                     if (type && !type.isUnique) {
-                                                        addUniqueArmoryItemForm.setValue("itemTypeId", ""); // Reset if non-unique type selected
+                                                        addUniqueArmoryItemForm.setValue("itemTypeId", ""); 
                                                         toast({variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט ייחודי בלבד."})
                                                         setSelectedItemTypeForSoldierPageIsUnique(null);
                                                         (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
@@ -724,7 +724,7 @@ export function SoldierDetailClient({
                                     </div>
                                 )}
 
-                                {selectedItemTypeForSoldierPageIsUnique === true && ( // Only show for unique item types
+                                {selectedItemTypeForSoldierPageIsUnique === true && ( 
                                     <div>
                                         <Label htmlFor="armoryItemImageSoldierPage">תמונת פריט (לסריקה)</Label>
                                         <div className="flex items-center gap-2">

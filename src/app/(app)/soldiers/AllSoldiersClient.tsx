@@ -146,10 +146,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         };
         setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
         toast({ title: "הצלחה", description: "חייל נוסף בהצלחה." });
-        setEditingSoldier(updatedOrNewSoldier); // Keep dialog open for document upload if new
+        setEditingSoldier(updatedOrNewSoldier); 
       }
-      // Keep dialog open if it's a new soldier, to allow document upload
-      // setIsSoldierDialogOpen(!!editingSoldier); // Only close if editing
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת חייל נכשלה." });
     }
@@ -218,14 +216,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       setEditableFileName("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
-      let errorMessage = "העלאת מסמך נכשלה.";
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
       console.error("Client-side document upload error details:", error);
-      toast({ variant: "destructive", title: "שגיאת העלאה", description: errorMessage });
+      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה." });
     } finally {
       setIsUploading(false);
     }
@@ -244,14 +236,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       ));
       toast({ title: "הצלחה", description: "המסמך נמחק." });
     } catch (error: any) {
-      let errorMessage = "מחיקת מסמך נכשלה.";
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
       console.error("Client-side document delete error details:", error);
-      toast({ variant: "destructive", title: "שגיאת מחיקה", description: errorMessage });
+      toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
     }
   };
 
@@ -283,11 +269,11 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const worksheet = workbook.Sheets[sheetName];
 
         const jsonDataRaw = XLSX.utils.sheet_to_json(worksheet, {
-          header: 1,
-          defval: '',
+          header: 1, // Read the first row as an array of header strings
+          defval: '', // Default value for empty cells
         }) as Array<any[]>;
 
-        if (!jsonDataRaw || jsonDataRaw.length < 1) {
+        if (!jsonDataRaw || jsonDataRaw.length < 1) { // Need at least one header row
           toast({ variant: "destructive", title: "שגיאת מבנה קובץ", description: "הקובץ ריק או שאינו בפורמט Excel תקין (נדרשת שורת כותרות לפחות)." });
           setIsImporting(false);
           return;
@@ -307,18 +293,18 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           if (nameIndex === -1) missingHeaders.push(`"${soldierNameHeader}"`);
           if (idIndex === -1) missingHeaders.push(`"${soldierIdHeader}"`);
           if (divisionIndex === -1) missingHeaders.push(`"${divisionNameHeader}"`);
-
+          
           toast({
             variant: "destructive",
             title: "שגיאת מבנה קובץ",
             description: `הכותרות הבאות חסרות או שגויות בשורה הראשונה של הקובץ: ${missingHeaders.join(', ')}. ודא שהכותרות תואמות בדיוק (כולל אותיות גדולות/קטנות ורווחים) ונסה שנית.`,
-            duration: 15000,
+            duration: 15000, 
           });
           setIsImporting(false);
           return;
         }
-
-        const dataRows = jsonDataRaw.slice(1);
+        
+        const dataRows = jsonDataRaw.slice(1); // Get data rows (all rows except the header)
         if (dataRows.length === 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים לייבוא בקובץ (לאחר שורת הכותרות)." });
             setIsImporting(false);
@@ -326,12 +312,12 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         }
 
         const soldiersToImport: SoldierImportData[] = dataRows
-          .map((rowArray: any[]) => ({
+          .map((rowArray: any[]) => ({ // Explicitly type rowArray
             name: String(rowArray[nameIndex] || "").trim(),
             id: String(rowArray[idIndex] || "").trim(),
             divisionName: String(rowArray[divisionIndex] || "").trim(),
           }))
-          .filter(soldier => soldier.id && soldier.name && soldier.divisionName);
+          .filter(soldier => soldier.id && soldier.name && soldier.divisionName); // Filter out rows with missing essential data
 
         if (soldiersToImport.length === 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים תקינות (עם כל השדות הנדרשים) לייבוא בקובץ. ודא שכל שורה מכילה ערכים עבור 'שם החייל', 'מספר אישי', ו'שם הפלוגה'." });
@@ -369,7 +355,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             variant: "destructive",
             title: `שגיאות בייבוא (${result.errorCount})`,
             description: errorDescriptionContent,
-            duration: result.errorCount === 1 ? 10000 : 15000
+            duration: result.errorCount === 1 ? 10000 : 15000 
           });
         }
 
@@ -411,14 +397,15 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
+      // Handle Firestore Timestamp object
       date = (timestampInput as any).toDate();
     } else {
-      // console.warn("Invalid date input to formatDate:", timestampInput);
+      console.warn("Invalid date input to formatDate:", timestampInput);
       return 'תאריך לא תקין';
     }
 
     if (isNaN(date.getTime())) {
-      // console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
+      console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
       return 'תאריך לא תקין';
     }
     return date.toLocaleDateString('he-IL');
