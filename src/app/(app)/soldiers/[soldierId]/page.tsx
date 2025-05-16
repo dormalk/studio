@@ -1,13 +1,13 @@
 
 import { getSoldierById } from "@/actions/soldierActions";
-import { getArmoryItemsBySoldierId, getArmoryItemTypes } from "@/actions/armoryActions"; // Added getArmoryItemTypes
+import { getArmoryItemsBySoldierId, getArmoryItemTypes, getArmoryItems } from "@/actions/armoryActions";
 import { SoldierDetailClient } from "./SoldierDetailClient";
 import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
-
+import type { ArmoryItem } from "@/types";
 
 export const dynamic = 'force-dynamic';
 
@@ -22,28 +22,28 @@ export default async function SoldierPage({ params }: SoldierPageProps) {
   
   const soldierData = getSoldierById(soldierId);
   const linkedArmoryItemsData = getArmoryItemsBySoldierId(soldierId);
-  const armoryItemTypesData = getArmoryItemTypes(); // Fetch armory item types
+  const armoryItemTypesData = getArmoryItemTypes();
+  const allArmoryItemsData = getArmoryItems(); // Fetch all armory items
 
-  const [soldier, linkedArmoryItems, armoryItemTypes] = await Promise.all([
+  const [soldier, linkedArmoryItems, armoryItemTypes, allArmoryItems] = await Promise.all([
     soldierData,
     linkedArmoryItemsData,
-    armoryItemTypesData
+    armoryItemTypesData,
+    allArmoryItemsData
   ]);
   
   if (!soldier) {
     notFound();
   }
   
-  // Enrich armory items with item type names if not already present
-  // This might be redundant if getArmoryItemsBySoldierId already does this, but good for safety.
-  const enrichedLinkedArmoryItems = linkedArmoryItems.map(item => {
-    if (!item.itemTypeName) {
-      const type = armoryItemTypes.find(t => t.id === item.itemTypeId);
-      return { ...item, itemTypeName: type ? type.name : "סוג לא ידוע" };
-    }
-    return item;
-  });
-  
+  const availableNonUniqueItems = allArmoryItems.filter(item => !item.isUniqueItem).map(item => {
+    const totalAssigned = item.assignments?.reduce((sum, asgn) => sum + asgn.quantity, 0) || 0;
+    return {
+      ...item,
+      availableQuantity: (item.totalQuantity || 0) - totalAssigned,
+    };
+  }).filter(item => (item.availableQuantity || 0) > 0 || item.assignments?.some(a => a.soldierId === soldierId)); // Include if soldier has assignment even if stock is 0
+
   return (
     <div className="container mx-auto py-8 space-y-8">
       <div className="flex justify-between items-center">
@@ -58,11 +58,10 @@ export default async function SoldierPage({ params }: SoldierPageProps) {
       
       <SoldierDetailClient 
         soldier={soldier} 
-        initialArmoryItems={enrichedLinkedArmoryItems} 
-        initialArmoryItemTypes={armoryItemTypes} // Pass item types to client
+        initialArmoryItems={linkedArmoryItems} 
+        initialArmoryItemTypes={armoryItemTypes}
+        availableNonUniqueItems={availableNonUniqueItems as Array<ArmoryItem & { availableQuantity: number }>}
       />
     </div>
   );
 }
-
-    

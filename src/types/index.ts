@@ -32,14 +32,21 @@ export interface Soldier {
 export interface ArmoryItemType {
   id: string;
   name: string;
-  isUnique: boolean; // New field: true if items of this type are unique (require serial)
+  isUnique: boolean;
+}
+
+export interface ArmoryItemAssignment {
+  soldierId: string;
+  quantity: number;
+  soldierName?: string; // Denormalized for display
+  soldierDivisionName?: string; // Denormalized for display
 }
 
 export interface ArmoryItem {
   id: string; // Firestore document ID
   itemTypeId: string; // Foreign key to ArmoryItemType
   itemTypeName?: string; // Denormalized for display
-  isUniqueItem?: boolean; // Denormalized from ArmoryItemType for easier client-side logic & queries
+  isUniqueItem: boolean; // Denormalized from ArmoryItemType for easier client-side logic & queries
 
   // Fields for UNIQUE items
   itemId?: string; // Serial number: Mandatory if isUniqueItem is true, hidden/null otherwise
@@ -49,7 +56,10 @@ export interface ArmoryItem {
 
   // Fields for NON-UNIQUE items
   totalQuantity?: number; // Total stock of this non-unique item: Mandatory if isUniqueItem is false
+  assignments?: ArmoryItemAssignment[]; // For non-unique items, list of soldiers and quantities assigned
 
   imageUrl?: string; // URL of the scanned image, if stored
-  // photoDataUri is a form-only field
+
+  // Client-side temporary field for SoldierDetail page
+  _currentSoldierAssignedQuantity?: number;
 }
