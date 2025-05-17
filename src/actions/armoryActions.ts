@@ -97,13 +97,22 @@ export async function addArmoryItem(
       dataToSaveForFirestore.itemId = String(itemData.itemId).trim();
       dataToSaveForFirestore.linkedSoldierId = itemData.linkedSoldierId ? itemData.linkedSoldierId : null;
       dataToSaveForFirestore.isStored = itemData.isStored !== undefined ? itemData.isStored : false;
-      dataToSaveForFirestore.shelfNumber = itemData.shelfNumber ? String(itemData.shelfNumber).trim() : null;
+      
+      if (dataToSaveForFirestore.isStored) {
+        dataToSaveForFirestore.shelfNumber = itemData.shelfNumber && String(itemData.shelfNumber).trim() !== "" ? String(itemData.shelfNumber).trim() : null;
+      } else {
+        dataToSaveForFirestore.shelfNumber = null; // Not stored, so no shelf number
+      }
     } else {
       if (itemData.totalQuantity === undefined || itemData.totalQuantity === null || itemData.totalQuantity <= 0) {
         throw new Error("כמות במלאי חייבת להיות גדולה מאפס עבור פריט לא ייחודי.");
       }
       dataToSaveForFirestore.totalQuantity = itemData.totalQuantity;
       dataToSaveForFirestore.assignments = []; // Initialize assignments for non-unique items
+      dataToSaveForFirestore.itemId = deleteField();
+      dataToSaveForFirestore.linkedSoldierId = deleteField();
+      dataToSaveForFirestore.isStored = deleteField();
+      dataToSaveForFirestore.shelfNumber = deleteField();
     }
 
     const docRef = await addDoc(armoryCollection, dataToSaveForFirestore);
@@ -112,20 +121,17 @@ export async function addArmoryItem(
         revalidatePath(`/soldiers/${dataToSaveForFirestore.linkedSoldierId}`);
     }
 
-    // Construct the object to return to the client
     const newArmoryItemToReturn: ArmoryItem = {
         id: docRef.id,
         itemTypeId: itemData.itemTypeId,
         isUniqueItem: isActuallyUnique,
         imageUrl: itemData.imageUrl || undefined,
-        // Conditionally include fields based on isUnique
         itemId: isActuallyUnique ? dataToSaveForFirestore.itemId : undefined,
         linkedSoldierId: isActuallyUnique ? (dataToSaveForFirestore.linkedSoldierId === null ? null : dataToSaveForFirestore.linkedSoldierId) : undefined,
         isStored: isActuallyUnique ? dataToSaveForFirestore.isStored : undefined,
-        shelfNumber: isActuallyUnique ? (dataToSaveForFirestore.shelfNumber === null ? undefined : dataToSaveForFirestore.shelfNumber) : undefined,
+        shelfNumber: (isActuallyUnique && dataToSaveForFirestore.isStored) ? (dataToSaveForFirestore.shelfNumber === null ? undefined : dataToSaveForFirestore.shelfNumber) : undefined,
         totalQuantity: !isActuallyUnique ? dataToSaveForFirestore.totalQuantity : undefined,
         assignments: !isActuallyUnique ? [] : undefined,
-        // These will be enriched client-side or by getArmoryItems
         itemTypeName: "", 
         linkedSoldierName: undefined,
         linkedSoldierDivisionName: undefined,
@@ -175,7 +181,7 @@ export async function getArmoryItems(): Promise<ArmoryItem[]> {
             imageUrl: data.imageUrl, 
             itemId: isActuallyUnique ? data.itemId : undefined,
             isStored: isActuallyUnique ? (data.isStored !== undefined ? data.isStored : false) : undefined,
-            shelfNumber: isActuallyUnique ? data.shelfNumber : undefined,
+            shelfNumber: (isActuallyUnique && data.isStored) ? data.shelfNumber : undefined, // Only return shelfNumber if stored
             totalQuantity: !isActuallyUnique ? data.totalQuantity : undefined,
             linkedSoldierId: isActuallyUnique ? (data.linkedSoldierId === null ? null : data.linkedSoldierId || undefined) : undefined,
             assignments: !isActuallyUnique ? (data.assignments || []).map((asgn: any) => {
@@ -281,24 +287,20 @@ export async function updateArmoryItem(
       if (updates.hasOwnProperty('linkedSoldierId')) {
         dataToUpdate.linkedSoldierId = (updates.linkedSoldierId === undefined || updates.linkedSoldierId === null) ? null : updates.linkedSoldierId;
       } else {
-        // Retain existing linkedSoldierId if not explicitly part of updates
         dataToUpdate.linkedSoldierId = oldData.linkedSoldierId === undefined ? null : oldData.linkedSoldierId;
       }
       
-      if (updates.hasOwnProperty('isStored')) {
-        dataToUpdate.isStored = updates.isStored;
-      } else if (oldData.isUniqueItem && oldData.isStored !== undefined) {
-        dataToUpdate.isStored = oldData.isStored;
-      } else {
-        dataToUpdate.isStored = false; // Default for new unique items or if not previously set
-      }
+      const finalIsStored = updates.hasOwnProperty('isStored') ? updates.isStored : (oldData.isStored !== undefined ? oldData.isStored : false);
+      dataToUpdate.isStored = finalIsStored;
 
-      if (updates.hasOwnProperty('shelfNumber')) {
-        dataToUpdate.shelfNumber = updates.shelfNumber ? String(updates.shelfNumber).trim() : null;
-      } else if (oldData.isUniqueItem && oldData.shelfNumber !== undefined) {
-        dataToUpdate.shelfNumber = oldData.shelfNumber;
+      if (finalIsStored) {
+          if (updates.hasOwnProperty('shelfNumber')) {
+              dataToUpdate.shelfNumber = updates.shelfNumber && String(updates.shelfNumber).trim() !== "" ? String(updates.shelfNumber).trim() : null;
+          } else {
+              dataToUpdate.shelfNumber = oldData.shelfNumber !== undefined ? oldData.shelfNumber : null;
+          }
       } else {
-         dataToUpdate.shelfNumber = null;
+          dataToUpdate.shelfNumber = null; // Clear shelfNumber if not stored
       }
       
       dataToUpdate.totalQuantity = deleteField();
@@ -331,14 +333,14 @@ export async function updateArmoryItem(
         }
     });
     if (dataToUpdate.imageUrl === undefined) dataToUpdate.imageUrl = null;
-    if (dataToUpdate.isUniqueItem === true && dataToUpdate.linkedSoldierId === undefined) {
-        dataToUpdate.linkedSoldierId = null;
-    }
-    if (dataToUpdate.isUniqueItem === true && dataToUpdate.isStored === undefined) {
-        dataToUpdate.isStored = false;
-    }
-    if (dataToUpdate.isUniqueItem === true && dataToUpdate.shelfNumber === undefined) {
-        dataToUpdate.shelfNumber = null;
+   
+    // Defaults for unique items if not explicitly set by deletion logic for non-unique conversion
+    if (dataToUpdate.isUniqueItem === true) {
+        if (!dataToUpdate.hasOwnProperty('linkedSoldierId')) dataToUpdate.linkedSoldierId = oldData.linkedSoldierId === undefined ? null : oldData.linkedSoldierId;
+        if (!dataToUpdate.hasOwnProperty('isStored')) dataToUpdate.isStored = oldData.isStored !== undefined ? oldData.isStored : false;
+        if (!dataToUpdate.hasOwnProperty('shelfNumber')) {
+             dataToUpdate.shelfNumber = dataToUpdate.isStored ? (oldData.shelfNumber !== undefined ? oldData.shelfNumber : null) : null;
+        }
     }
 
 

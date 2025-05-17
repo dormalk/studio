@@ -71,7 +71,7 @@ const armoryItemBaseSchemaOnSoldierPage = z.object({
   itemTypeId: z.string().min(1, "יש לבחור סוג פריט"),
   itemId: z.string().optional(), // Serial number
   photoDataUri: z.string().optional(),
-  isStored: z.boolean().optional(),
+  isStored: z.boolean().optional().default(false),
   shelfNumber: z.string().optional(),
 });
 
@@ -85,6 +85,13 @@ const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRef
           code: z.ZodIssueCode.custom,
           path: ["itemId"],
           message: "מספר סריאלי הינו שדה חובה עבור פריט ייחודי",
+        });
+      }
+      if (data.isStored === false && data.shelfNumber && data.shelfNumber.trim() !== "") {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["shelfNumber"],
+            message: "לא ניתן להזין מספר מדף אם הפריט אינו מאוחסן",
         });
       }
     }
@@ -181,6 +188,9 @@ export function SoldierDetailClient({
     defaultValues: { newQuantity: 1}
   });
 
+  const addUniqueFormIsStored = addUniqueArmoryItemForm.watch("isStored");
+
+
   useEffect(() => {
     setSoldier(initialSoldier);
     soldierDetailsForm.reset({
@@ -220,17 +230,22 @@ export function SoldierDetailClient({
     fetchDivisionsData();
   }, [isEditSoldierDialogOpen, toast]);
 
+  const currentItemTypeId = addUniqueArmoryItemForm.watch("itemTypeId");
   useEffect(() => {
-    const itemTypeId = addUniqueArmoryItemForm.watch("itemTypeId");
-    if (itemTypeId) {
-      const type = allArmoryItemTypes.find(t => t.id === itemTypeId);
-      setSelectedItemTypeForSoldierPageIsUnique(type ? type.isUnique : null);
-      (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type ? type.isUnique : null;
+    if (currentItemTypeId) {
+      const type = allArmoryItemTypes.find(t => t.id === currentItemTypeId);
+      const isUnique = type ? type.isUnique : null;
+      setSelectedItemTypeForSoldierPageIsUnique(isUnique);
+      (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = isUnique;
+      if (isUnique === true && addUniqueArmoryItemForm.getValues("isStored") === false) {
+        addUniqueArmoryItemForm.setValue("shelfNumber", "");
+      }
     } else {
       setSelectedItemTypeForSoldierPageIsUnique(null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
+      addUniqueArmoryItemForm.setValue("shelfNumber", "");
     }
-  }, [addUniqueArmoryItemForm.watch("itemTypeId"), allArmoryItemTypes, addUniqueArmoryItemForm]);
+  }, [currentItemTypeId, addUniqueFormIsStored, allArmoryItemTypes, addUniqueArmoryItemForm]);
 
 
   useEffect(() => {
@@ -247,7 +262,7 @@ export function SoldierDetailClient({
     } else {
         if (addOrLinkDialogMode === 'create') {
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
-             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""}); // Ensure create form also resets
+             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""}); 
         } else if (addOrLinkDialogMode === 'link') {
             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""});
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); 
@@ -438,7 +453,7 @@ export function SoldierDetailClient({
         linkedSoldierId: soldier.id,
         imageUrl: validatedValues.photoDataUri || undefined,
         isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : false,
-        shelfNumber: validatedValues.shelfNumber || undefined,
+        shelfNumber: (validatedValues.isStored && validatedValues.shelfNumber) ? validatedValues.shelfNumber : undefined,
       };
 
       const newItemServer = await addArmoryItem(dataToSave);
@@ -454,7 +469,7 @@ export function SoldierDetailClient({
         linkedSoldierDivisionName: soldier.divisionName,
         imageUrl: newItemServer.imageUrl,
         isStored: newItemServer.isStored,
-        shelfNumber: newItemServer.shelfNumber,
+        shelfNumber: (newItemServer.isStored && newItemServer.shelfNumber) ? newItemServer.shelfNumber : undefined,
       };
 
       setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
@@ -481,6 +496,7 @@ export function SoldierDetailClient({
     try {
         await updateArmoryItem(itemIdToLink, { 
             linkedSoldierId: soldier.id,
+            // isStored will remain as it was on the item, or can be updated separately if needed
         });
         
         const updatedItemForSoldierList: ArmoryItem = {
@@ -586,7 +602,6 @@ export function SoldierDetailClient({
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
-      // Handle Firestore Timestamp object
       date = (timestampInput as any).toDate();
     } else {
       console.warn("Invalid date input to formatDate (SoldierDetailClient):", timestampInput);
@@ -605,7 +620,7 @@ export function SoldierDetailClient({
         .filter(item => 
             item.isUniqueItem && 
             !item.linkedSoldierId &&
-            (!linkItemSearchTerm || (item.itemId || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.itemTypeName || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()))
+            (!linkItemSearchTerm || (item.itemId || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.itemTypeName || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.shelfNumber && item.isStored && item.shelfNumber.toLowerCase().includes(linkItemSearchTerm.toLowerCase())))
         )
         .sort((a,b) => (a.itemTypeName || "").localeCompare(b.itemTypeName || "") || (a.itemId || "").localeCompare(b.itemId || ""));
   }, [allExistingArmoryItems, linkItemSearchTerm]);
@@ -815,8 +830,11 @@ export function SoldierDetailClient({
                                                             setSelectedItemTypeForSoldierPageIsUnique(null);
                                                             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
                                                         } else if (type && type.isUnique) {
-                                                            addUniqueArmoryItemForm.setValue("isStored", false); 
-                                                            addUniqueArmoryItemForm.setValue("shelfNumber", "");
+                                                             const currentIsStored = addUniqueArmoryItemForm.getValues("isStored");
+                                                            addUniqueArmoryItemForm.setValue("isStored", currentIsStored || false); 
+                                                            if (!currentIsStored) {
+                                                                addUniqueArmoryItemForm.setValue("shelfNumber", "");
+                                                            }
                                                         }
                                                         addUniqueArmoryItemForm.trigger();
                                                     }}
@@ -851,17 +869,25 @@ export function SoldierDetailClient({
                                                     <Checkbox
                                                         id="isStoredNewItemSoldierPage"
                                                         checked={field.value}
-                                                        onCheckedChange={field.onChange}
+                                                        onCheckedChange={(checked) => {
+                                                            field.onChange(checked);
+                                                            if (checked === false) {
+                                                                addUniqueArmoryItemForm.setValue("shelfNumber", "");
+                                                            }
+                                                            addUniqueArmoryItemForm.trigger("shelfNumber");
+                                                        }}
                                                     />
                                                 )}
                                             />
                                             <Label htmlFor="isStoredNewItemSoldierPage" className="text-sm font-normal">הפריט מאוחסן</Label>
                                         </div>
-                                        <div>
-                                            <Label htmlFor="shelfNumberSoldierPage">מספר מדף (אופציונלי)</Label>
-                                            <Input id="shelfNumberSoldierPage" {...addUniqueArmoryItemForm.register("shelfNumber")} />
-                                            {addUniqueArmoryItemForm.formState.errors.shelfNumber && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.shelfNumber.message}</p>}
-                                        </div>
+                                        {addUniqueFormIsStored && selectedItemTypeForSoldierPageIsUnique === true && (
+                                            <div>
+                                                <Label htmlFor="shelfNumberSoldierPage">מספר מדף (אופציונלי)</Label>
+                                                <Input id="shelfNumberSoldierPage" {...addUniqueArmoryItemForm.register("shelfNumber")} />
+                                                {addUniqueArmoryItemForm.formState.errors.shelfNumber && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.shelfNumber.message}</p>}
+                                            </div>
+                                        )}
                                       </>
                                     )}
 
@@ -924,7 +950,7 @@ export function SoldierDetailClient({
                                                         ) : (
                                                             availableUniqueItemsToLink.map(item => (
                                                                 <SelectItem key={item.id} value={item.id}>
-                                                                    {item.itemTypeName} - {item.itemId} {item.shelfNumber ? `(מדף: ${item.shelfNumber})` : ""} {item.isStored ? "(מאוחסן)" : ""}
+                                                                    {item.itemTypeName} - {item.itemId} {item.shelfNumber && item.isStored ? `(מדף: ${item.shelfNumber})` : ""} {item.isStored ? "(מאוחסן)" : ""}
                                                                 </SelectItem>
                                                             ))
                                                         )}
@@ -965,7 +991,7 @@ export function SoldierDetailClient({
                                 {item.isStored ? <PackageX className="w-3.5 h-3.5 me-1.5 text-orange-500" /> : <PackageCheck className="w-3.5 h-3.5 me-1.5 text-green-600" />}
                                 סטטוס: {item.isStored ? "מאוחסן" : "מונפק"}
                             </CardDescription>
-                            {item.shelfNumber && (
+                            {item.isStored && item.shelfNumber && (
                                 <CardDescription className="flex items-center">
                                     <MapPin className="w-3.5 h-3.5 me-1.5 text-muted-foreground" />
                                     מדף: {item.shelfNumber}

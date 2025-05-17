@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import {
@@ -61,7 +61,7 @@ const armoryItemBaseSchema = z.object({
   totalQuantity: z.number().int().positive("כמות חייבת להיות מספר חיובי").optional(),
   photoDataUri: z.string().optional(),
   linkedSoldierId: z.string().optional(),
-  isStored: z.boolean().optional(),
+  isStored: z.boolean().optional().default(false),
   shelfNumber: z.string().optional(),
 });
 
@@ -75,6 +75,13 @@ const armoryItemSchema = armoryItemBaseSchema.superRefine((data, ctx) => {
         path: ["itemId"],
         message: "מספר סריאלי הינו שדה חובה עבור פריט ייחודי",
       });
+    }
+    if (data.isStored === false && data.shelfNumber && data.shelfNumber.trim() !== "") {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["shelfNumber"],
+            message: "לא ניתן להזין מספר מדף אם הפריט אינו מאוחסן",
+        });
     }
   } else if (isUnique === false) {
     if (data.totalQuantity === undefined || data.totalQuantity === null || data.totalQuantity <= 0) {
@@ -136,6 +143,9 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     defaultValues: { name: "", isUnique: true },
   });
 
+  const itemFormIsStored = itemForm.watch("isStored");
+
+
   useEffect(() => {
     setArmoryItems(initialArmoryItems);
   }, [initialArmoryItems]);
@@ -148,23 +158,29 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     setSoldiers(initialSoldiers.sort((a,b) => a.name.localeCompare(b.name)));
   }, [initialSoldiers]);
 
+  const currentItemTypeId = itemForm.watch("itemTypeId");
   useEffect(() => {
-    const watchedItemTypeId = itemForm.watch("itemTypeId");
-    if (watchedItemTypeId) {
-      const type = armoryItemTypes.find(t => t.id === watchedItemTypeId);
-      setSelectedItemTypeIsUnique(type ? type.isUnique : null);
-      (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = type ? type.isUnique : null;
+    if (currentItemTypeId) {
+      const type = armoryItemTypes.find(t => t.id === currentItemTypeId);
+      const isUnique = type ? type.isUnique : null;
+      setSelectedItemTypeIsUnique(isUnique);
+      (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = isUnique;
+      if (isUnique === false || (isUnique === true && itemForm.getValues("isStored") === false)) {
+        itemForm.setValue("shelfNumber", "");
+      }
     } else {
       setSelectedItemTypeIsUnique(null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = null;
+      itemForm.setValue("shelfNumber", "");
     }
-  }, [itemForm.watch("itemTypeId"), armoryItemTypes, itemForm]);
+  }, [currentItemTypeId, itemFormIsStored, armoryItemTypes, itemForm]);
 
 
   useEffect(() => {
     if (editingItem) {
       const type = armoryItemTypes.find(t => t.id === editingItem.itemTypeId);
       const isUnique = type ? type.isUnique : editingItem.isUniqueItem; 
+      const currentIsStored = isUnique ? (editingItem.isStored !== undefined ? editingItem.isStored : false) : false;
       setSelectedItemTypeIsUnique(isUnique);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = isUnique;
 
@@ -173,8 +189,8 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         itemId: isUnique ? editingItem.itemId || "" : "",
         totalQuantity: !isUnique ? editingItem.totalQuantity || 1 : 1,
         linkedSoldierId: isUnique ? (editingItem.linkedSoldierId || NO_SOLDIER_LINKED_VALUE) : NO_SOLDIER_LINKED_VALUE,
-        isStored: isUnique ? (editingItem.isStored !== undefined ? editingItem.isStored : false) : false,
-        shelfNumber: isUnique ? editingItem.shelfNumber || "" : "",
+        isStored: currentIsStored,
+        shelfNumber: (isUnique && currentIsStored) ? editingItem.shelfNumber || "" : "",
         photoDataUri: editingItem.imageUrl || undefined,
       });
       setScannedImagePreview(editingItem.imageUrl || null);
@@ -212,7 +228,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                 const itemIdMatch = item.itemId?.toLowerCase().includes(term);
                 const soldierNameMatch = item.linkedSoldierName?.toLowerCase().includes(term);
                 const storedMatch = item.isStored && "מאוחסן".includes(term);
-                const shelfNumberMatch = item.shelfNumber?.toLowerCase().includes(term);
+                const shelfNumberMatch = item.isStored && item.shelfNumber?.toLowerCase().includes(term);
                 return typeNameMatch || itemIdMatch || soldierNameMatch || storedMatch || shelfNumberMatch;
             }
             const assignmentsMatch = !item.isUniqueItem && item.assignments?.some(asgn => asgn.soldierName?.toLowerCase().includes(term));
@@ -257,6 +273,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
             const typeForForm = armoryItemTypes.find(t => t.id === matchedType.id); 
             setSelectedItemTypeIsUnique(typeForForm ? typeForForm.isUnique : null);
             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = typeForForm ? typeForForm.isUnique : null;
+            if (typeForForm && !typeForForm.isUnique) itemForm.setValue("isStored", false); // Non-unique items are not stored
             itemForm.trigger(); 
 
             toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}${matchedType.isUnique ? `, מספר סריאלי: ${result.itemId}` : ''}` });
@@ -298,7 +315,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         itemId: type.isUnique ? validatedValues.itemId : undefined,
         linkedSoldierId: type.isUnique ? ((validatedValues.linkedSoldierId === NO_SOLDIER_LINKED_VALUE || !validatedValues.linkedSoldierId) ? undefined : validatedValues.linkedSoldierId) : undefined,
         isStored: type.isUnique ? validatedValues.isStored : undefined,
-        shelfNumber: type.isUnique ? (validatedValues.shelfNumber || undefined) : undefined,
+        shelfNumber: (type.isUnique && validatedValues.isStored) ? (validatedValues.shelfNumber || undefined) : undefined,
         totalQuantity: !type.isUnique ? validatedValues.totalQuantity : undefined,
       };
 
@@ -315,7 +332,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
             itemId: type.isUnique ? validatedValues.itemId : undefined,
             linkedSoldierId: type.isUnique ? dataToSave.linkedSoldierId : undefined, 
             isStored: type.isUnique ? dataToSave.isStored : undefined,
-            shelfNumber: type.isUnique ? dataToSave.shelfNumber : undefined,
+            shelfNumber: (type.isUnique && dataToSave.isStored) ? dataToSave.shelfNumber : undefined,
             linkedSoldierName: undefined, 
             linkedSoldierDivisionName: undefined, 
             totalQuantity: !type.isUnique ? validatedValues.totalQuantity : undefined,
@@ -345,7 +362,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
             itemId: newItemFromServer.isUniqueItem ? newItemFromServer.itemId : undefined,
             linkedSoldierId: newItemFromServer.isUniqueItem ? newItemFromServer.linkedSoldierId : undefined,
             isStored: newItemFromServer.isUniqueItem ? newItemFromServer.isStored : undefined,
-            shelfNumber: newItemFromServer.isUniqueItem ? newItemFromServer.shelfNumber : undefined,
+            shelfNumber: (newItemFromServer.isUniqueItem && newItemFromServer.isStored) ? newItemFromServer.shelfNumber : undefined,
             linkedSoldierName: undefined,
             linkedSoldierDivisionName: undefined,
             totalQuantity: !newItemFromServer.isUniqueItem ? newItemFromServer.totalQuantity : undefined,
@@ -429,8 +446,8 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         "סוג הפריט": item.itemTypeName || "לא ידוע",
         "ייחודי": item.isUniqueItem ? "כן" : "לא",
         "מספר סידורי": item.isUniqueItem ? item.itemId : "N/A",
-        "סטטוס (אם ייחודי)": item.isUniqueItem ? (item.isStored ? "מאוחסן" : "מונפק") : "N/A",
-        "מספר מדף (אם ייחודי)": item.isUniqueItem ? item.shelfNumber : "N/A",
+        "מאוחסן (אם ייחודי)": item.isUniqueItem ? (item.isStored ? "כן" : "לא") : "N/A",
+        "מספר מדף (אם מאוחסן)": item.isUniqueItem && item.isStored ? item.shelfNumber : "N/A",
         "כמות במלאי (אם לא ייחודי)": !item.isUniqueItem ? item.totalQuantity : "N/A",
         "חייל מקושר (אם ייחודי)": item.isUniqueItem && item.linkedSoldierName ? item.linkedSoldierName : (item.isUniqueItem ? "לא משויך" : "N/A"),
         "מספר אישי (חייל)": item.isUniqueItem && item.linkedSoldierId ? item.linkedSoldierId : "",
@@ -583,11 +600,12 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = type ? type.isUnique : null;
                             if (type) { 
                                 if (type.isUnique) { 
-                                    itemForm.setValue("totalQuantity", undefined); 
+                                    itemForm.setValue("totalQuantity", undefined);
+                                    itemForm.setValue("isStored", itemForm.getValues("isStored") || false); // Keep or default
                                 } else { 
                                     itemForm.setValue("itemId", ""); 
                                     itemForm.setValue("linkedSoldierId", NO_SOLDIER_LINKED_VALUE); 
-                                    itemForm.setValue("isStored", false);
+                                    itemForm.setValue("isStored", false); // Non-unique items are not "stored" in the same way
                                     itemForm.setValue("shelfNumber", "");
                                     if(itemForm.getValues("totalQuantity") === undefined || itemForm.getValues("totalQuantity")! <=0 ) {
                                         itemForm.setValue("totalQuantity",1);
@@ -627,17 +645,25 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                                 <Checkbox
                                     id="isStoredItem"
                                     checked={field.value}
-                                    onCheckedChange={field.onChange}
+                                    onCheckedChange={(checked) => {
+                                        field.onChange(checked);
+                                        if (checked === false) {
+                                            itemForm.setValue("shelfNumber", "");
+                                        }
+                                        itemForm.trigger("shelfNumber"); // re-validate shelfNumber if needed
+                                    }}
                                 />
                             )}
                         />
-                        <Label htmlFor="isStoredItem" className="text-sm font-normal">הפריט מאוחסן (לא בשימוש פעיל)</Label>
+                        <Label htmlFor="isStoredItem" className="text-sm font-normal">הפריט מאוחסן</Label>
                     </div>
-                    <div>
-                      <Label htmlFor="shelfNumber">מספר מדף (אופציונלי)</Label>
-                      <Input id="shelfNumber" {...itemForm.register("shelfNumber")} />
-                      {itemForm.formState.errors.shelfNumber && <p className="text-destructive text-sm">{itemForm.formState.errors.shelfNumber.message}</p>}
-                    </div>
+                    {itemFormIsStored && selectedItemTypeIsUnique === true && (
+                        <div>
+                            <Label htmlFor="shelfNumber">מספר מדף (אופציונלי)</Label>
+                            <Input id="shelfNumber" {...itemForm.register("shelfNumber")} />
+                            {itemForm.formState.errors.shelfNumber && <p className="text-destructive text-sm">{itemForm.formState.errors.shelfNumber.message}</p>}
+                        </div>
+                    )}
                     <div>
                       <Label htmlFor="linkedSoldierIdSelect">שייך לחייל (אופציונלי)</Label>
                       <Controller
@@ -775,7 +801,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                     <>
                         <CardDescription>מספר סריאלי: <span className="font-semibold">{item.itemId || "N/A"}</span></CardDescription>
                         <CardDescription>סטטוס: <span className="font-semibold">{item.isStored ? "מאוחסן" : "מונפק"}</span></CardDescription>
-                         {item.shelfNumber && <CardDescription>מדף: <span className="font-semibold">{item.shelfNumber}</span></CardDescription>}
+                         {item.isStored && item.shelfNumber && <CardDescription className="flex items-center"><MapPin className="w-3.5 h-3.5 me-1 text-muted-foreground"/>מדף: <span className="font-semibold ms-1">{item.shelfNumber}</span></CardDescription>}
                     </>
                 ) : (
                     <CardDescription>
