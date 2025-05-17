@@ -3,7 +3,7 @@
 
 import { db } from "@/lib/firebase";
 import type { ArmoryItem, ArmoryItemType, Soldier, Division, ArmoryItemAssignment } from "@/types";
-import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, query, where, writeBatch, getDoc, FieldValue } from "firebase/firestore";
+import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, serverTimestamp, query, where, writeBatch, getDoc, deleteField } from "firebase/firestore";
 import { revalidatePath } from "next/cache";
 import { scanArmoryItem as scanArmoryItemAI } from "@/ai/flows/scan-armory-item";
 
@@ -274,18 +274,14 @@ export async function updateArmoryItem(
           throw new Error("מספר סריאלי הינו חובה עבור פריט ייחודי.");
       }
 
-      // Explicitly handle linkedSoldierId:
-      // If linkedSoldierId is part of 'updates', use its value (undefined/null becomes null).
-      // If not in 'updates' (e.g., only itemId changed), retain old value.
       if (updates.hasOwnProperty('linkedSoldierId')) {
         dataToUpdate.linkedSoldierId = (updates.linkedSoldierId === undefined || updates.linkedSoldierId === null) ? null : updates.linkedSoldierId;
       } else {
-        // If not in updates, retain the old value or default to null if it was undefined
         dataToUpdate.linkedSoldierId = oldData.linkedSoldierId === undefined ? null : oldData.linkedSoldierId;
       }
       
-      dataToUpdate.totalQuantity = FieldValue.delete();
-      dataToUpdate.assignments = FieldValue.delete();
+      dataToUpdate.totalQuantity = deleteField();
+      dataToUpdate.assignments = deleteField();
 
     } else if (dataToUpdate.isUniqueItem === false) {
       if (updates.totalQuantity === undefined && oldData.isUniqueItem === true) {
@@ -296,8 +292,8 @@ export async function updateArmoryItem(
           throw new Error("כמות במלאי חייבת להיות גדולה מאפס עבור פריט לא ייחודי.");
       }
       
-      dataToUpdate.itemId = FieldValue.delete();
-      dataToUpdate.linkedSoldierId = FieldValue.delete(); 
+      dataToUpdate.itemId = deleteField();
+      dataToUpdate.linkedSoldierId = deleteField(); 
 
       if (oldData.isUniqueItem === true && dataToUpdate.isUniqueItem === false) { 
         dataToUpdate.assignments = updates.assignments !== undefined ? updates.assignments : []; 
@@ -306,15 +302,12 @@ export async function updateArmoryItem(
       }
     }
     
-    // Clean up undefined fields from dataToUpdate, except for specific ones that can be null
     Object.keys(dataToUpdate).forEach(key => {
         if (dataToUpdate[key] === undefined && key !== 'linkedSoldierId' && key !== 'imageUrl') {
             delete dataToUpdate[key];
         }
     });
     if (dataToUpdate.imageUrl === undefined) dataToUpdate.imageUrl = null;
-    // Final safeguard: if linkedSoldierId is still undefined here (should have been converted to null for unique items), set it to null.
-    // For non-unique items, it should have been deleted by FieldValue.delete().
     if (dataToUpdate.isUniqueItem === true && dataToUpdate.linkedSoldierId === undefined) {
         dataToUpdate.linkedSoldierId = null;
     }
@@ -324,21 +317,18 @@ export async function updateArmoryItem(
 
     const newLinkedSoldierIdAfterUpdate = dataToUpdate.isUniqueItem ? dataToUpdate.linkedSoldierId : undefined;
 
-    // Revalidate old soldier path if they were unlinked or item changed
     if (oldLinkedSoldierId && oldLinkedSoldierId !== newLinkedSoldierIdAfterUpdate) {
         revalidatePath(`/soldiers/${oldLinkedSoldierId}`);
     }
-    // Revalidate new soldier path if they were linked
     if (newLinkedSoldierIdAfterUpdate && newLinkedSoldierIdAfterUpdate !== oldLinkedSoldierId) {
         revalidatePath(`/soldiers/${newLinkedSoldierIdAfterUpdate}`);
     }
-    // If it was a non-unique item and assignments might have changed (e.g. item type changed)
     if (dataToUpdate.isUniqueItem === false) {
         const affectedSoldierIds = new Set<string>();
         (oldData.assignments || []).forEach((asgn: ArmoryItemAssignment) => affectedSoldierIds.add(asgn.soldierId));
         (dataToUpdate.assignments || []).forEach((asgn: ArmoryItemAssignment) => affectedSoldierIds.add(asgn.soldierId));
         affectedSoldierIds.forEach(soldierId => revalidatePath(`/soldiers/${soldierId}`));
-        if (affectedSoldierIds.size > 0) revalidatePath("/soldiers"); // General revalidate for soldier list
+        if (affectedSoldierIds.size > 0) revalidatePath("/soldiers"); 
     }
 
   } catch (error) {
@@ -421,7 +411,7 @@ export async function manageSoldierAssignmentToNonUniqueItem(
       }
     });
 
-    if (newQuantity < 0) newQuantity = 0; // Cannot assign negative quantity
+    if (newQuantity < 0) newQuantity = 0; 
 
     if (totalAssignedToOthers + newQuantity > (itemData.totalQuantity || 0)) {
       throw new Error(`הכמות המבוקשת (${newQuantity}) חורגת מהכמות הפנויה במלאי (${(itemData.totalQuantity || 0) - totalAssignedToOthers}).`);
