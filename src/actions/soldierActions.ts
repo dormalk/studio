@@ -246,10 +246,9 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
     });
 
     // For non-unique items assigned to this soldier
-    // This requires fetching all non-unique items and filtering their assignments arrays.
     const allNonUniqueItemsSnapshot = await getDocs(query(armoryItemsRef, where("isUniqueItem", "==", false)));
     allNonUniqueItemsSnapshot.forEach(itemDoc => {
-        const itemData = itemDoc.data() as ArmoryItem; // Assuming ArmoryItem structure is correct
+        const itemData = itemDoc.data() as ArmoryItem; 
         if (itemData.assignments && itemData.assignments.some(asgn => asgn.soldierId === soldierId)) {
             const updatedAssignments = itemData.assignments.filter(asgn => asgn.soldierId !== soldierId);
             batch.update(itemDoc.ref, { assignments: updatedAssignments });
@@ -287,7 +286,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
   }
 
   const displayFileName = customFileName && customFileName.trim() !== "" ? customFileName.trim() : file.name;
-  const uniqueStorageFileName = `${uuidv4()}-${file.name}`; // Use original file name for uniqueness with UUID
+  const uniqueStorageFileName = `${uuidv4()}-${file.name}`; 
   const storagePath = `soldiers/${soldierId}/documents/${uniqueStorageFileName}`;
   const storageRef = ref(storage, storagePath);
 
@@ -295,19 +294,18 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     const uploadTaskSnapshot = await uploadBytesResumable(storageRef, file);
     const downloadURL = await getDownloadURL(uploadTaskSnapshot.ref);
 
-    const firestoreTimestamp = Timestamp.now(); // Use client-generated Firestore Timestamp for arrayUnion
+    const firestoreTimestamp = Timestamp.now();
 
-    const documentDataForFirestore = { // This object goes into Firestore
+    const documentDataForFirestore = { 
       id: uuidv4(),
       fileName: displayFileName,
-      storagePath: storagePath, // Store the actual path used
+      storagePath: storagePath, 
       downloadURL: downloadURL,
       fileType: file.type,
       fileSize: file.size,
-      uploadedAt: firestoreTimestamp // Stored as Firestore Timestamp
+      uploadedAt: firestoreTimestamp 
     };
     
-    // This object is returned to the client (uploadedAt is ISO string)
     const documentDataToReturn: SoldierDocument = {
         id: documentDataForFirestore.id,
         fileName: displayFileName,
@@ -315,7 +313,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
         downloadURL: downloadURL,
         fileType: file.type,
         fileSize: file.size,
-        uploadedAt: firestoreTimestamp.toDate().toISOString() // Converted to ISO string for client
+        uploadedAt: firestoreTimestamp.toDate().toISOString() 
     };
 
     const soldierDocRef = doc(db, "soldiers", soldierId);
@@ -324,18 +322,17 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     });
 
     revalidatePath(`/soldiers/${soldierId}`);
-    revalidatePath("/soldiers"); // Revalidate the main soldiers list page as well
+    revalidatePath("/soldiers"); 
 
     return documentDataToReturn;
 
   } catch (error: any) {
-    // Enhanced server-side logging
     console.error("--- SERVER ACTION ERROR (uploadSoldierDocument) ---");
     console.error("Full raw error object during upload/DB update:", error);
     if (typeof error === 'object' && error !== null) {
       console.error("Error name:", error.name);
       console.error("Error message:", error.message);
-      console.error("Error code (if any):", error.code);
+      console.error("Error code (if any):", (error as any).code);
       console.error("Error stack:", error.stack);
     }
     console.error("--------------------------------------------------");
@@ -343,8 +340,9 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     let userFriendlyMessage = "העלאת מסמך נכשלה עקב שגיאת שרת. נסה שוב מאוחר יותר.";
 
     if (error && typeof error === 'object') {
-        if (error.code) { // Firebase specific error codes
-            switch (error.code) {
+        const firebaseError = error as any; // Cast to any to access .code
+        if (firebaseError.code) { 
+            switch (firebaseError.code) {
                 case 'storage/unauthorized':
                     userFriendlyMessage = "שגיאת הרשאות בהעלאת הקובץ. אנא בדוק את חוקי האבטחה של Firebase Storage.";
                     break;
@@ -364,10 +362,10 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
                     userFriendlyMessage = "שגיאה: מסמך החייל לא נמצא במסד הנתונים.";
                     break;
                 default:
-                    userFriendlyMessage = `שגיאת שרת (${error.code}). נסה שוב מאוחר יותר.`;
+                    userFriendlyMessage = `שגיאת שרת (${firebaseError.code}). נסה שוב מאוחר יותר.`;
             }
-        } else if (error.message && typeof error.message === 'string' && error.message.trim() !== "") {
-            userFriendlyMessage = `שגיאה: ${error.message}`;
+        } else if (firebaseError.message && typeof firebaseError.message === 'string' && firebaseError.message.trim() !== "") {
+            userFriendlyMessage = `שגיאה: ${firebaseError.message}`;
         }
     } else if (typeof error === 'string' && error.trim() !== "") {
         userFriendlyMessage = error;
@@ -380,17 +378,14 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
 // Delete a document for a soldier
 export async function deleteSoldierDocument(soldierId: string, documentId: string, docStoragePath: string): Promise<void> {
   try {
-    // Attempt to delete from Storage first
     if (docStoragePath) {
         const storageRefToDelete = ref(storage, docStoragePath);
         try {
             await deleteObject(storageRefToDelete);
         } catch (storageError: any) {
-            // If file not found in storage, log it but proceed to remove Firestore entry
             if (storageError.code === "storage/object-not-found") {
                 console.warn(`Document not found in Storage at path: ${docStoragePath}. Proceeding to remove Firestore entry.`);
             } else {
-                // For other storage errors, re-throw to inform the user
                 throw storageError;
             }
         }
@@ -398,7 +393,6 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
         console.warn(`Missing storagePath for document ID ${documentId} of soldier ${soldierId}. Cannot delete from Storage.`);
     }
 
-    // Remove from Firestore
     const soldierDocRef = doc(db, "soldiers", soldierId);
     const soldierSnap = await getDoc(soldierDocRef);
     if (!soldierSnap.exists()) {
@@ -415,18 +409,17 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
     revalidatePath("/soldiers");
   } catch (error: any) {
     console.error("Error deleting document: ", error);
-    // Construct user-friendly message
     let simpleMessage = "מחיקת מסמך נכשלה.";
     if (error instanceof Error) {
         simpleMessage = error.message;
     } else if (typeof error === 'string') {
         simpleMessage = error;
-    } else if (error.code) { // Firebase specific error
-        switch(error.code) {
+    } else if ((error as any).code) { 
+        switch((error as any).code) {
             case 'storage/unauthorized':
                 simpleMessage = "שגיאת הרשאות במחיקת הקובץ מהאחסון."; break;
             default:
-                simpleMessage = `שגיאת שרת (${error.code}) בעת מחיקת המסמך.`;
+                simpleMessage = `שגיאת שרת (${(error as any).code}) בעת מחיקת המסמך.`;
         }
     }
     throw new Error(simpleMessage);
@@ -458,7 +451,7 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   for (let i = 0; i < soldiersData.length; i++) {
     const soldierRow = soldiersData[i];
-    const rowNumber = i + 2; // Assuming Excel row numbers start from 1 and first row is header
+    const rowNumber = i + 2; 
 
     if (!soldierRow.id || !soldierRow.name || !soldierRow.divisionName) {
       errorCount++;
@@ -488,7 +481,6 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
         id: soldierId,
         name: soldierName,
         divisionId: divisionId,
-        // documents array is initialized by addSoldier
       });
       addedSoldiers.push(newSoldier);
       successCount++;
@@ -500,8 +492,9 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   if (successCount > 0) {
     revalidatePath("/soldiers");
-    revalidatePath("/divisions"); // Soldier counts in divisions might change
+    revalidatePath("/divisions"); 
   }
 
   return { successCount, errorCount, errors, addedSoldiers };
 }
+

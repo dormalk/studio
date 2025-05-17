@@ -237,11 +237,12 @@ export function SoldierDetailClient({
       setScannedArmoryImagePreview(null);
       setSelectedItemTypeForSoldierPageIsUnique(null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
-      (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create';
+      (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create'; // default back to create
       setAddOrLinkDialogMode('create');
       setLinkItemSearchTerm('');
       if (armoryItemFileInputRef.current) armoryItemFileInputRef.current.value = "";
     } else {
+        // When dialog opens, or mode changes, reset the *other* form
         if (addOrLinkDialogMode === 'create') {
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
         } else if (addOrLinkDialogMode === 'link') {
@@ -411,7 +412,7 @@ export function SoldierDetailClient({
       toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט ייחודי חוקי." });
       return;
     }
-    (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type.isUnique; // Ensure flag is set
+    (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type.isUnique; 
     (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create';
 
 
