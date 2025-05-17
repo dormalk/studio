@@ -11,6 +11,11 @@ export interface DivisionWithDetails extends Division {
   armoryItemCount: number;
 }
 
+export interface DivisionArmorySummary {
+  totalUniqueItemsInDivision: number;
+  nonUniqueItemsSummaryInDivision: Array<{ itemTypeName: string; totalQuantityAssigned: number }>;
+}
+
 export interface SoldierDocument {
   id: string; // Unique ID for this document record (e.g., UUID)
   fileName: string; // Display file name (can be custom)
