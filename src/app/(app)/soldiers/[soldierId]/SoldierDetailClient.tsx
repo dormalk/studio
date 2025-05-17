@@ -71,7 +71,7 @@ const armoryItemBaseSchemaOnSoldierPage = z.object({
   itemTypeId: z.string().min(1, "יש לבחור סוג פריט"),
   itemId: z.string().optional(), // Serial number
   photoDataUri: z.string().optional(),
-  isStored: z.boolean().optional().default(true), // Default to true
+  isStored: z.boolean().optional().default(true),
   shelfNumber: z.string().optional(),
 });
 
@@ -93,6 +93,10 @@ const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRef
             path: ["shelfNumber"],
             message: "לא ניתן להזין מספר מדף אם הפריט אינו מאוחסן",
         });
+      }
+      if (data.isStored === false && isUnique) { // No need to check linkedSoldierId here as it's auto-linked
+        // This validation is mostly for the main armory page.
+        // Here, the item is always linked to the current soldier if not stored.
       }
     }
   }
@@ -311,7 +315,7 @@ export function SoldierDetailClient({
         const ext = nameParts.length > 1 ? "." + nameParts.pop() : "";
         const base = nameParts.join('.');
         
-        setFileNameBase(""); // Default to empty for custom name
+        setFileNameBase(""); 
         setFileNameExt(ext);
     } else {
         setSelectedFile(null);
@@ -422,8 +426,9 @@ export function SoldierDetailClient({
                 (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = matchedType.isUnique;
                 if (matchedType.isUnique) { 
                     addUniqueArmoryItemForm.setValue("itemId", result.itemId);
+                    addUniqueArmoryItemForm.setValue("isStored", true); // Default to stored on scan success for unique
                 }
-                addUniqueArmoryItemForm.trigger(["itemTypeId", "itemId"]);
+                addUniqueArmoryItemForm.trigger(["itemTypeId", "itemId", "isStored"]);
                 toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}, מספר סריאלי: ${result.itemId}` });
             } else {
                 toast({ variant: "default", title: "סריקה - מידע נוסף", description: `זוהה מספר סריאלי: ${result.itemId}. סוג הפריט '${result.itemType}' שזוהה אינו ייחודי. יש לבחור סוג פריט ייחודי מהרשימה.` });
@@ -468,7 +473,7 @@ export function SoldierDetailClient({
         itemId: validatedValues.itemId,
         linkedSoldierId: soldier.id,
         imageUrl: validatedValues.photoDataUri || undefined,
-        isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : true, // Default true for new items
+        isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : true,
         shelfNumber: (validatedValues.isStored && validatedValues.shelfNumber && validatedValues.shelfNumber.trim() !== "") ? validatedValues.shelfNumber.trim() : undefined,
       };
        if (dataToSave.isStored === false) dataToSave.shelfNumber = undefined;
@@ -491,7 +496,7 @@ export function SoldierDetailClient({
       };
 
       setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
-      setAllExistingArmoryItems(prev => [...prev, newItemForState]); // Add to all items list as well
+      setAllExistingArmoryItems(prev => [...prev, newItemForState]); 
 
       toast({ title: "הצלחה", description: `פריט מחסן (${type.name}) נוסף ושויך לחייל.` });
       setIsAddOrLinkUniqueArmoryItemDialogOpen(false);
@@ -660,9 +665,12 @@ export function SoldierDetailClient({
       date = new Date(timestampInput);
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
+    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { // For Firestore Timestamps
       date = (timestampInput as any).toDate();
-    } else {
+    } else if (typeof timestampInput === 'object' && 'seconds' in timestampInput && 'nanoseconds' in timestampInput) { // For Firestore-like Timestamp objects from server
+      date = new Date((timestampInput as any).seconds * 1000 + (timestampInput as any).nanoseconds / 1000000);
+    }
+     else {
       console.warn("Invalid date input to formatDate (SoldierDetailClient):", timestampInput);
       return 'תאריך לא תקין';
     }
@@ -671,7 +679,7 @@ export function SoldierDetailClient({
       console.warn("Parsed date is invalid in formatDate (SoldierDetailClient):", date, "from input:", timestampInput);
       return 'תאריך לא תקין';
     }
-    return date.toLocaleDateString('he-IL');
+    return date.toLocaleDateString('he-IL', { year: 'numeric', month: '2-digit', day: '2-digit' });
   };
   
   const availableUniqueItemsToLink = useMemo(() => {
@@ -768,7 +776,7 @@ export function SoldierDetailClient({
           </div>
           {selectedFile && (
             <div className="mt-2 space-y-1">
-                <Label htmlFor="editableFileNameSoldierPage">שם הקובץ (ללא סיומת)</Label>
+                <Label htmlFor="editableFileNameSoldierPage">שם הקובץ (ללא סיומת) - חובה</Label>
                 <Input
                     id="editableFileNameSoldierPage"
                     type="text"
@@ -910,7 +918,7 @@ export function SoldierDetailClient({
                                                         } else if (type && type.isUnique) {
                                                             const currentIsStored = addUniqueArmoryItemForm.getValues("isStored");
                                                             addUniqueArmoryItemForm.setValue("isStored", currentIsStored === undefined ? true : currentIsStored); 
-                                                            if (!currentIsStored) {
+                                                            if (!currentIsStored) { // If not stored (i.e. false), clear shelf number
                                                                 addUniqueArmoryItemForm.setValue("shelfNumber", "");
                                                             }
                                                         }

@@ -31,7 +31,7 @@ const soldiersCollection = collection(db, "soldiers");
 const divisionsCollection = collection(db, "divisions");
 
 // Add a new soldier (using soldier's unique ID as document ID)
-export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'documents'>): Promise<Soldier> {
+export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'documents' | 'assignedUniqueArmoryItemsDetails' | 'assignedNonUniqueArmoryItemsSummary'>): Promise<Soldier> {
   try {
     const soldierDocRef = doc(db, "soldiers", soldierData.id);
     const soldierDocSnap = await getDoc(soldierDocRef);
@@ -39,13 +39,16 @@ export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'do
       throw new Error(`חייל עם מ.א. ${soldierData.id} כבר קיים.`);
     }
 
-    const newSoldierData = {
+    const newSoldierDataForFirestore = {
       ...soldierData,
       documents: [], // Initialize with an empty documents array
     };
-    await setDoc(soldierDocRef, newSoldierData);
+    await setDoc(soldierDocRef, newSoldierDataForFirestore);
     revalidatePath("/soldiers");
-    if (soldierData.divisionId) revalidatePath(`/divisions/${soldierData.divisionId}`);
+    if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
+        revalidatePath(`/divisions/${soldierData.divisionId}`);
+    }
+
 
     let divisionName = "לא משויך";
     if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
@@ -54,12 +57,18 @@ export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'do
             divisionName = (divisionDoc.data() as Division).name;
         }
     }
-
-    return {
-        ...newSoldierData,
-        divisionName,
-        documents: [] // Ensure documents is an array in the returned object
+    
+    // Construct the Soldier object to return, including all necessary fields initialized
+    const returnedSoldier: Soldier = {
+        ...soldierData, // This includes id, name, divisionId
+        divisionName: divisionName,
+        documents: [],
+        assignedUniqueArmoryItemsDetails: [], // Initialize as empty
+        assignedNonUniqueArmoryItemsSummary: [], // Initialize as empty
     };
+
+    return returnedSoldier;
+
   } catch (error: any) {
     console.error("Error adding soldier: ", error);
     if (error instanceof Error) throw error;
@@ -164,7 +173,7 @@ export async function getSoldiersByDivisionId(divisionId: string): Promise<Soldi
         divisionName: divisionName, // Use the fetched divisionName
         documents: (data.documents || []).map((docData: any) => ({
             ...docData,
-            uploadedAt: docData.uploadedAt instanceof Timestamp
+           uploadedAt: docData.uploadedAt instanceof Timestamp
             ? docData.uploadedAt.toDate().toISOString()
             : (docData.uploadedAt && typeof docData.uploadedAt === 'object' && docData.uploadedAt.seconds)
                 ? new Date(docData.uploadedAt.seconds * 1000 + (docData.uploadedAt.nanoseconds || 0) / 1000000).toISOString()
@@ -180,7 +189,7 @@ export async function getSoldiersByDivisionId(divisionId: string): Promise<Soldi
 }
 
 
-export async function updateSoldier(soldierId: string, updates: Partial<Omit<Soldier, 'id' | 'divisionName' | 'documents'>>): Promise<void> {
+export async function updateSoldier(soldierId: string, updates: Partial<Omit<Soldier, 'id' | 'divisionName' | 'documents' | 'assignedUniqueArmoryItemsDetails' | 'assignedNonUniqueArmoryItemsSummary'>>): Promise<void> {
   try {
     const soldierDoc = doc(db, "soldiers", soldierId);
     const oldSoldierDataSnap = await getDoc(soldierDoc);
@@ -223,21 +232,27 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
           try {
             await deleteObject(storageRef);
           } catch (storageError: any) {
+            // Log warning but continue deletion from Firestore
             console.warn(`Error deleting document ${docToDelete.fileName} from storage for soldier ${soldierId}: `, storageError.message || storageError);
           }
         }
       }
     }
     
+    // Unlink armory items
     const armoryItemsRef = collection(db, "armoryItems");
     const batch = writeBatch(db);
 
+    // Handle unique items linked to this soldier
     const qArmoryUnique = query(armoryItemsRef, where("linkedSoldierId", "==", soldierId), where("isUniqueItem", "==", true));
     const armorySnapshotUnique = await getDocs(qArmoryUnique);
     armorySnapshotUnique.forEach(itemDoc => {
-        batch.update(itemDoc.ref, { linkedSoldierId: null });
+        batch.update(itemDoc.ref, { linkedSoldierId: null }); // Or set to a specific "unassigned" status if needed
     });
 
+    // Handle non-unique items assignments for this soldier
+    // This is more complex as assignments are an array within each non-unique item.
+    // We need to fetch all non-unique items, check their assignments array, and update if necessary.
     const allNonUniqueItemsSnapshot = await getDocs(query(armoryItemsRef, where("isUniqueItem", "==", false)));
     allNonUniqueItemsSnapshot.forEach(itemDoc => {
         const itemData = itemDoc.data() as ArmoryItem; 
@@ -248,14 +263,15 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
     });
     await batch.commit();
 
+
     await deleteDoc(soldierDocRef);
 
     revalidatePath("/soldiers");
     if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
       revalidatePath(`/divisions/${soldierData.divisionId}`);
     }
-    revalidatePath("/divisions");
-    revalidatePath("/armory");
+    revalidatePath("/divisions"); // Revalidate the main divisions page as soldier counts might change
+    revalidatePath("/armory"); // Revalidate armory page as item links might change
 
   } catch (error) {
     console.error("Error deleting soldier: ", error);
@@ -283,7 +299,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     const uploadTaskSnapshot = await uploadBytesResumable(storageRef, file);
     const downloadURL = await getDownloadURL(uploadTaskSnapshot.ref);
 
-    const firestoreTimestamp = Timestamp.now();
+    const firestoreTimestamp = Timestamp.now(); // Use client/server-generated timestamp for arrayUnion
 
     const documentDataForFirestore = { 
       id: uuidv4(),
@@ -292,9 +308,10 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
       downloadURL: downloadURL,
       fileType: file.type,
       fileSize: file.size,
-      uploadedAt: firestoreTimestamp 
+      uploadedAt: firestoreTimestamp // This is a Firestore Timestamp object
     };
     
+    // For returning to client, convert timestamp to ISO string
     const documentDataToReturn: SoldierDocument = {
         id: documentDataForFirestore.id,
         fileName: displayFileName,
@@ -302,7 +319,7 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
         downloadURL: downloadURL,
         fileType: file.type,
         fileSize: file.size,
-        uploadedAt: firestoreTimestamp.toDate().toISOString() 
+        uploadedAt: firestoreTimestamp.toDate().toISOString() // Convert to ISO string for client
     };
 
     const soldierDocRef = doc(db, "soldiers", soldierId);
@@ -326,28 +343,54 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     }
     console.error("--------------------------------------------------");
 
-    // Throw a very generic error to the client to avoid serialization issues
-    // The detailed error is logged on the server.
-    throw new Error("העלאת מסמך נכשלה. נא לבדוק את הלוגים בצד השרת לפרטים נוספים.");
+    let simpleMessage = "העלאת מסמך נכשלה. נא לבדוק את הלוגים בצד השרת לפרטים נוספים.";
+    if (error && typeof error === 'object') {
+        if ((error as any).code) { 
+            switch((error as any).code) {
+                case 'storage/unauthorized':
+                    simpleMessage = "שגיאת הרשאות באחסון. ודא שיש לך הרשאה להעלות קבצים."; break;
+                case 'storage/object-not-found':
+                    simpleMessage = "אובייקט לא נמצא באחסון."; break;
+                case 'storage/canceled':
+                    simpleMessage = "העלאת הקובץ בוטלה."; break;
+                case 'permission-denied': // Firestore permission error
+                    simpleMessage = "שגיאת הרשאות במסד הנתונים. ודא שיש הרשאה לעדכן את פרטי החייל."; break;
+                default:
+                    simpleMessage = `שגיאה (${(error as any).code}): ${error.message || 'פרטים נוספים בלוג השרת.'}`;
+            }
+        } else if (error.message && typeof error.message === 'string') {
+            simpleMessage = error.message;
+        }
+    } else if (typeof error === 'string') {
+        simpleMessage = error;
+    }
+    throw new Error(simpleMessage);
   }
 }
 
 // Delete a document for a soldier
 export async function deleteSoldierDocument(soldierId: string, documentId: string, docStoragePath: string): Promise<void> {
   try {
-    if (docStoragePath) {
+    // Ensure docStoragePath is a non-empty string before attempting deletion
+    if (docStoragePath && typeof docStoragePath === 'string' && docStoragePath.trim() !== '') {
         const storageRefToDelete = ref(storage, docStoragePath);
         try {
             await deleteObject(storageRefToDelete);
         } catch (storageError: any) {
+            // If the object doesn't exist, it's fine, we still want to remove the Firestore entry.
+            // For other storage errors, log them but proceed with Firestore deletion.
             if (storageError.code === "storage/object-not-found") {
                 console.warn(`Document not found in Storage at path: ${docStoragePath}. Proceeding to remove Firestore entry.`);
             } else {
-                throw storageError;
+                // For other errors (like permission issues), log them and potentially re-throw or handle.
+                // For now, we'll log and continue to ensure the Firestore entry can be removed if possible.
+                console.error(`Error deleting document from Storage (path: ${docStoragePath}):`, storageError);
+                // Optionally, you could re-throw here if Storage deletion failure should halt the process:
+                // throw new Error("מחיקת קובץ מהאחסון נכשלה. " + (storageError.message || ""));
             }
         }
     } else {
-        console.warn(`Missing storagePath for document ID ${documentId} of soldier ${soldierId}. Cannot delete from Storage.`);
+        console.warn(`Missing or invalid storagePath for document ID ${documentId} of soldier ${soldierId}. Cannot delete from Storage.`);
     }
 
     const soldierDocRef = doc(db, "soldiers", soldierId);
@@ -356,6 +399,7 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
       throw new Error("חייל לא נמצא במסד הנתונים.");
     }
     const soldierData = soldierSnap.data() as Omit<Soldier, 'documents' | 'divisionName'> & { documents?: Array<any> };
+    // Filter out the document to be deleted
     const updatedDocuments = soldierData.documents?.filter(docEntry => docEntry.id !== documentId) || [];
 
     await updateDoc(soldierDocRef, {
@@ -363,20 +407,21 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
     });
 
     revalidatePath(`/soldiers/${soldierId}`);
-    revalidatePath("/soldiers");
+    revalidatePath("/soldiers"); // Revalidate all soldiers page if needed
   } catch (error: any) {
-    console.error("Error deleting document: ", error);
+    console.error("Error deleting document (action): ", error);
     let simpleMessage = "מחיקת מסמך נכשלה.";
     if (error instanceof Error) {
         simpleMessage = error.message;
     } else if (typeof error === 'string') {
         simpleMessage = error;
     } else if ((error as any).code) { 
+        // Attempt to create a more user-friendly message from Firebase error codes
         switch((error as any).code) {
             case 'storage/unauthorized':
                 simpleMessage = "שגיאת הרשאות במחיקת הקובץ מהאחסון."; break;
-            case 'permission-denied':
-                simpleMessage = "שגיאת הרשאות בעת ניסיון מחיקה."; break;
+            case 'permission-denied': // Firestore permission error
+                simpleMessage = "שגיאת הרשאות בעת ניסיון מחיקה ממסד הנתונים."; break;
             default:
                 simpleMessage = `שגיאת שרת (${(error as any).code}) בעת מחיקת המסמך.`;
         }
@@ -410,7 +455,7 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   for (let i = 0; i < soldiersData.length; i++) {
     const soldierRow = soldiersData[i];
-    const rowNumber = i + 2; 
+    const rowNumber = i + 2; // Assuming Excel row numbers start from 1 and row 1 is header
 
     if (!soldierRow.id || !soldierRow.name || !soldierRow.divisionName) {
       errorCount++;
@@ -436,6 +481,7 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
     }
 
     try {
+      // Call addSoldier which now returns a complete Soldier object
       const newSoldier = await addSoldier({
         id: soldierId,
         name: soldierName,
