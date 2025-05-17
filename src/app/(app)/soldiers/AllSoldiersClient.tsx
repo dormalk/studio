@@ -1,14 +1,14 @@
 
 "use client";
 
-import type { Soldier, Division, SoldierDocument } from "@/types";
+import type { Soldier, Division } from "@/types";
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Edit3, Eye, RefreshCw, FileUp, Package, Archive } from "lucide-react";
+import { PlusCircle, Trash2, Edit3, Eye, RefreshCw, FileUp, Package, Archive, FileText } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +50,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import * as XLSX from 'xlsx';
+import { Separator } from "@/components/ui/separator";
 
 const soldierSchema = z.object({
   id: z.string().min(1, "מ.א. הינו שדה חובה").regex(/^\d+$/, "מ.א. חייבת להכיל מספרים בלבד"),
@@ -131,7 +132,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       if (editingSoldier) {
         await updateSoldier(editingSoldier.id, {name: values.name, divisionId: values.divisionId});
          updatedOrNewSoldier = {
-            ...editingSoldier,
+            ...editingSoldier, // Keep existing documents and armory summaries
             name: values.name,
             divisionId: values.divisionId,
             divisionName,
@@ -140,17 +141,18 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         toast({ title: "הצלחה", description: "פרטי החייל עודכנו." });
       } else {
         const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
-        updatedOrNewSoldier = { 
-            ...newSoldierServerData, 
+        updatedOrNewSoldier = {
+            ...newSoldierServerData,
             divisionName,
-            documents: newSoldierServerData.documents || [], 
-            assignedUniqueArmoryItemsDetails: [], 
+            documents: newSoldierServerData.documents || [],
+            // Initialize armory summary fields for new soldiers
+            assignedUniqueArmoryItemsDetails: [],
             assignedNonUniqueArmoryItemsSummary: [],
         };
         setSoldiers(prev => [...prev, updatedOrNewSoldier!].sort((a,b) => a.name.localeCompare(b.name)));
         toast({ title: "הצלחה", description: "חייל נוסף בהצלחה." });
       }
-      setIsSoldierDialogOpen(false); 
+      setIsSoldierDialogOpen(false);
       setEditingSoldier(null);
       soldierForm.reset({ id: "", name: "", divisionId: "unassigned" });
     } catch (error: any) {
@@ -208,12 +210,12 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const worksheet = workbook.Sheets[sheetName];
 
         const jsonDataRaw = XLSX.utils.sheet_to_json(worksheet, {
-          header: 1, 
-          defval: '', 
+          header: 1,
+          defval: '',
           blankrows: false,
         }) as Array<any[]>;
 
-        if (!jsonDataRaw || jsonDataRaw.length < 1) { 
+        if (!jsonDataRaw || jsonDataRaw.length < 1) {
           toast({ variant: "destructive", title: "שגיאת מבנה קובץ", description: "הקובץ ריק או שאינו בפורמט Excel תקין (נדרשת שורת כותרות לפחות)." });
           setIsImporting(false);
           return;
@@ -233,24 +235,24 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           if (nameIndex === -1) missingHeaders.push(`"${soldierNameHeader}"`);
           if (idIndex === -1) missingHeaders.push(`"${soldierIdHeader}"`);
           if (divisionIndex === -1) missingHeaders.push(`"${divisionNameHeader}"`);
-          
+
           toast({
             variant: "destructive",
             title: "שגיאת מבנה קובץ",
             description: (
               <>
-                הכותרות הבאות חסרות או שגויות בשורה הראשונה של הקובץ: {missingHeaders.join(', ')}. 
+                הכותרות הבאות חסרות או שגויות בשורה הראשונה של הקובץ: {missingHeaders.join(', ')}.
                 <br />
                 ודא שהכותרות תואמות בדיוק ונסה שנית.
               </>
             ),
-            duration: 15000, 
+            duration: 15000,
           });
           setIsImporting(false);
           return;
         }
-        
-        const dataRows = jsonDataRaw.slice(1).filter(row => row.some(cell => String(cell).trim() !== '')); 
+
+        const dataRows = jsonDataRaw.slice(1).filter(row => row.some(cell => String(cell).trim() !== ''));
         if (dataRows.length === 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים לייבוא בקובץ (לאחר שורת הכותרות)." });
             setIsImporting(false);
@@ -258,7 +260,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         }
 
         const soldiersToImport: SoldierImportData[] = dataRows
-          .map((rowArray: any[]) => ({ 
+          .map((rowArray: any[]) => ({
             name: String(rowArray[nameIndex] || "").trim(),
             id: String(rowArray[idIndex] || "").trim(),
             divisionName: String(rowArray[divisionIndex] || "").trim(),
@@ -307,10 +309,10 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             variant: "destructive",
             title: `שגיאות בייבוא (${result.errorCount})`,
             description: errorDescriptionContent,
-            duration: result.errorCount === 1 ? 10000 : 15000 
+            duration: result.errorCount === 1 ? 10000 : 15000
           });
         }
-        
+
         if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length > 0) {
              toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ." });
         }
@@ -391,7 +393,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           onOpenChange={(isOpen) => {
             setIsSoldierDialogOpen(isOpen);
             if (!isOpen) {
-              setEditingSoldier(null); 
+              setEditingSoldier(null);
               soldierForm.reset({ id: "", name: "", divisionId: "unassigned" });
             }
           }}
@@ -420,18 +422,18 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                   name="divisionId"
                   control={soldierForm.control}
                   render={({ field }) => (
-                    <Select 
-                        onValueChange={field.onChange} 
+                    <Select
+                        onValueChange={field.onChange}
                         value={field.value}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="בחר פלוגה" /> 
+                        <SelectValue placeholder="בחר פלוגה" />
                       </SelectTrigger>
                       <SelectContent>
                         {divisions.map(div => (
                           <SelectItem key={div.id} value={div.id}>{div.name}</SelectItem>
                         ))}
-                        <SelectItem value="unassigned">לא משויך</SelectItem> 
+                        <SelectItem value="unassigned">לא משויך</SelectItem>
                       </SelectContent>
                     </Select>
                   )}
@@ -453,7 +455,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         onChange={(e) => setSearchTerm(e.target.value)}
         className="max-w-sm"
       />
-    
+
       {filteredSoldiers.length === 0 ? (
         <p className="text-center text-muted-foreground py-8">
           {searchTerm ? "לא נמצאו חיילים התואמים לחיפוש." : "אין חיילים להצגה."}
@@ -492,8 +494,28 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                 </CardHeader>
                 <CardContent className="flex-grow space-y-3">
                   <div>
+                    <p className="text-xs font-medium mb-0.5">סיכום מסמכים:</p>
+                    {soldier.documents && soldier.documents.length > 0 ? (
+                      <>
+                        <p className="text-xs text-muted-foreground flex items-center">
+                            <FileText className="inline h-3.5 w-3.5 me-1.5" />
+                            סה"כ מסמכים: {soldier.documents.length}
+                        </p>
+                         <ul className="space-y-0.5 ps-6 list-disc text-xs text-muted-foreground">
+                        {soldier.documents.slice(0, 2).map(doc => (
+                            <li key={doc.id} className="truncate">{doc.fileName}</li>
+                        ))}
+                        {soldier.documents.length > 2 && <li>ועוד...</li>}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">אין מסמכים מצורפים.</p>
+                    )}
+                  </div>
+                  <Separator className="my-2" />
+                  <div>
                     <p className="text-xs font-medium mb-0.5">סיכום מחסן:</p>
-                    {(!soldier.assignedUniqueArmoryItemsDetails || soldier.assignedUniqueArmoryItemsDetails.length === 0) && 
+                    {(!soldier.assignedUniqueArmoryItemsDetails || soldier.assignedUniqueArmoryItemsDetails.length === 0) &&
                      (!soldier.assignedNonUniqueArmoryItemsSummary || soldier.assignedNonUniqueArmoryItemsSummary.length === 0) ? (
                       <p className="text-xs text-muted-foreground">אין פריטי מחסן משויכים.</p>
                     ) : (
@@ -562,3 +584,4 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
+
