@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle, Camera, PlusCircle, MinusCircle, Edit, Link2, Archive, PackageCheck, PackageX, MapPin } from "lucide-react";
+import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle, Camera, PlusCircle, MinusCircle, Edit, Link2, Archive, PackageCheck, PackageX, MapPin, Unlink2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -29,7 +29,7 @@ import {
     scanArmoryItemImage,
     manageSoldierAssignmentToNonUniqueItem,
     getArmoryItemsBySoldierId,
-    getArmoryItems, 
+    getArmoryItems,
     updateArmoryItem,
 } from "@/actions/armoryActions";
 import Link from "next/link";
@@ -496,7 +496,8 @@ export function SoldierDetailClient({
     try {
         await updateArmoryItem(itemIdToLink, { 
             linkedSoldierId: soldier.id,
-            // isStored will remain as it was on the item, or can be updated separately if needed
+            isStored: itemToLink.isStored, // Preserve existing stored status
+            shelfNumber: itemToLink.shelfNumber // Preserve existing shelf number
         });
         
         const updatedItemForSoldierList: ArmoryItem = {
@@ -517,6 +518,25 @@ export function SoldierDetailClient({
         setIsAddOrLinkUniqueArmoryItemDialogOpen(false);
     } catch (error: any) {
         toast({ variant: "destructive", title: "שגיאה", description: error.message || "קשירת פריט קיים נכשלה."});
+    }
+  };
+
+  const handleUnlinkUniqueItem = async (armoryItemId: string) => {
+    if (!soldier) return;
+    try {
+        await updateArmoryItem(armoryItemId, { linkedSoldierId: null });
+
+        setArmoryItemsForSoldier(prev => prev.filter(item => item.id !== armoryItemId));
+        
+        setAllExistingArmoryItems(prev => prev.map(item => 
+            item.id === armoryItemId 
+            ? { ...item, linkedSoldierId: null, linkedSoldierName: undefined, linkedSoldierDivisionName: undefined } 
+            : item
+        ));
+
+        toast({ title: "הצלחה", description: "הפריט נותק מהחייל." });
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "שגיאה", description: error.message || "ביטול קישור הפריט נכשל." });
     }
   };
 
@@ -799,7 +819,7 @@ export function SoldierDetailClient({
                                 <DialogTitle>הוסף או קשר פריט נשקייה ייחודי</DialogTitle>
                                 <DialogDescription>צור פריט ייחודי חדש או קשר פריט ייחודי קיים לחייל {soldier.name}.</DialogDescription>
                             </DialogHeader>
-                            <RadioGroup defaultValue="create" className="my-4" onValueChange={(value: 'create' | 'link') => setAddOrLinkDialogMode(value)}>
+                            <RadioGroup defaultValue="create" className="my-4" value={addOrLinkDialogMode} onValueChange={(value: 'create' | 'link') => setAddOrLinkDialogMode(value)}>
                                 <div className="flex items-center space-x-2 rtl:space-x-reverse">
                                     <RadioGroupItem value="create" id="modeCreate" />
                                     <Label htmlFor="modeCreate">צור פריט חדש</Label>
@@ -998,7 +1018,24 @@ export function SoldierDetailClient({
                                 </CardDescription>
                             )}
                         </CardHeader>
-                        <CardFooter>
+                        <CardFooter className="flex-col items-stretch gap-2">
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="outline" size="sm" className="w-full"><Unlink2 className="me-2 h-3.5 w-3.5"/> בטל שיוך</Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>אישור ביטול שיוך</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            האם אתה בטוח שברצונך לבטל את שיוך הפריט "{item.itemTypeName} ({item.itemId})" מחייל זה?
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>לא</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => handleUnlinkUniqueItem(item.id)} className="bg-destructive hover:bg-destructive/90">כן, בטל שיוך</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
                             <Button variant="outline" size="sm" asChild className="w-full">
                             <Link href={`/armory`}>
                                 הצג בנשקייה
