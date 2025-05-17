@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle, Camera, PlusCircle, MinusCircle, Edit, Link2 } from "lucide-react";
+import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle, Camera, PlusCircle, MinusCircle, Edit, Link2, Archive, PackageCheck, PackageX } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -50,6 +50,7 @@ import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getDivisions } from "@/actions/divisionActions";
+import { Checkbox } from "@/components/ui/checkbox";
 
 
 interface SoldierDetailClientProps {
@@ -70,6 +71,7 @@ const armoryItemBaseSchemaOnSoldierPage = z.object({
   itemTypeId: z.string().min(1, "יש לבחור סוג פריט"),
   itemId: z.string().optional(), // Serial number
   photoDataUri: z.string().optional(),
+  isStored: z.boolean().optional(),
 });
 
 const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRefine((data, ctx) => {
@@ -152,7 +154,7 @@ export function SoldierDetailClient({
 
   const addUniqueArmoryItemForm = useForm<ArmoryItemFormDataOnSoldierPage>({
     resolver: zodResolver(armoryItemSchemaOnSoldierPage),
-    defaultValues: { itemTypeId: "", itemId: "", photoDataUri: undefined},
+    defaultValues: { itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false},
   });
   
   const linkExistingItemForm = useForm<LinkExistingItemFormData>({
@@ -232,7 +234,7 @@ export function SoldierDetailClient({
 
   useEffect(() => {
     if (!isAddOrLinkUniqueArmoryItemDialogOpen) {
-      addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined});
+      addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false});
       linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
       setScannedArmoryImagePreview(null);
       setSelectedItemTypeForSoldierPageIsUnique(null);
@@ -245,7 +247,7 @@ export function SoldierDetailClient({
         if (addOrLinkDialogMode === 'create') {
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
         } else if (addOrLinkDialogMode === 'link') {
-            addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined});
+            addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false});
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); // Reset link form too
             setScannedArmoryImagePreview(null);
             setSelectedItemTypeForSoldierPageIsUnique(null);
@@ -433,6 +435,7 @@ export function SoldierDetailClient({
         itemId: validatedValues.itemId,
         linkedSoldierId: soldier.id,
         imageUrl: validatedValues.photoDataUri || undefined,
+        isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : false,
       };
 
       const newItemServer = await addArmoryItem(dataToSave);
@@ -447,10 +450,11 @@ export function SoldierDetailClient({
         linkedSoldierName: soldier.name,
         linkedSoldierDivisionName: soldier.divisionName,
         imageUrl: newItemServer.imageUrl,
+        isStored: newItemServer.isStored,
       };
 
       setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
-      setAllExistingArmoryItems(prev => [...prev, newItemForState]);
+      setAllExistingArmoryItems(prev => [...prev, newItemForState]); // Add to all items list as well
 
       toast({ title: "הצלחה", description: `פריט נשקייה (${type.name}) נוסף ושויך לחייל.` });
       setIsAddOrLinkUniqueArmoryItemDialogOpen(false);
@@ -469,15 +473,29 @@ export function SoldierDetailClient({
         toast({variant: "destructive", title: "שגיאה", description: "הפריט הנבחר אינו פריט ייחודי פנוי."});
         return;
     }
+    // Get the isStored value from the form - it should be present in the create form, but might not be if we only link
+    const isStoredValue = addUniqueArmoryItemForm.getValues("isStored");
+
 
     try {
-        await updateArmoryItem(itemIdToLink, { linkedSoldierId: soldier.id });
+        // Pass isStored to the update action if the dialog mode implies creating/setting it
+        // For linking existing, the server action will decide if it should be updated based on what's passed.
+        // Here, we assume if we are in link mode and user interacted with isStored checkbox, we send that.
+        // Let's assume for linking existing, the isStored status of the item itself doesn't change unless explicitly set in a separate UI.
+        // However, since the form is shared, we might pass the current isStored from the form
+        await updateArmoryItem(itemIdToLink, { 
+            linkedSoldierId: soldier.id,
+            // If we want to allow changing isStored status when linking, we'd pass:
+            // isStored: addOrLinkDialogMode === 'create' ? addUniqueArmoryItemForm.getValues("isStored") : itemToLink.isStored 
+            // For now, let's assume linking doesn't change 'isStored' unless we add a checkbox to the 'link' mode too
+        });
         
         const updatedItemForSoldierList: ArmoryItem = {
             ...itemToLink,
             linkedSoldierId: soldier.id,
             linkedSoldierName: soldier.name,
             linkedSoldierDivisionName: soldier.divisionName,
+            // isStored will be whatever it was on the item itself
         };
         setArmoryItemsForSoldier(prev => [...prev, updatedItemForSoldierList]);
 
@@ -595,7 +613,7 @@ export function SoldierDetailClient({
         .filter(item => 
             item.isUniqueItem && 
             !item.linkedSoldierId &&
-            (!linkItemSearchTerm || (item.itemId || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()))
+            (!linkItemSearchTerm || (item.itemId || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.itemTypeName || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()))
         )
         .sort((a,b) => (a.itemTypeName || "").localeCompare(b.itemTypeName || "") || (a.itemId || "").localeCompare(b.itemId || ""));
   }, [allExistingArmoryItems, linkItemSearchTerm]);
@@ -804,6 +822,8 @@ export function SoldierDetailClient({
                                                             toast({variant: "destructive", title: "שגיאה", description: "יש לבחור סוג פריט ייחודי בלבד."})
                                                             setSelectedItemTypeForSoldierPageIsUnique(null);
                                                             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
+                                                        } else if (type && type.isUnique) {
+                                                            addUniqueArmoryItemForm.setValue("isStored", false); // Default for new unique item
                                                         }
                                                         addUniqueArmoryItemForm.trigger();
                                                     }}
@@ -824,11 +844,27 @@ export function SoldierDetailClient({
                                     </div>
 
                                     {selectedItemTypeForSoldierPageIsUnique === true && (
+                                      <>
                                         <div>
                                             <Label htmlFor="armoryItemIdSoldierPage">מספר סריאלי</Label>
                                             <Input id="armoryItemIdSoldierPage" {...addUniqueArmoryItemForm.register("itemId")} />
                                             {addUniqueArmoryItemForm.formState.errors.itemId && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.itemId.message}</p>}
                                         </div>
+                                         <div className="flex items-center space-x-2 rtl:space-x-reverse">
+                                            <Controller
+                                                name="isStored"
+                                                control={addUniqueArmoryItemForm.control}
+                                                render={({ field }) => (
+                                                    <Checkbox
+                                                        id="isStoredNewItemSoldierPage"
+                                                        checked={field.value}
+                                                        onCheckedChange={field.onChange}
+                                                    />
+                                                )}
+                                            />
+                                            <Label htmlFor="isStoredNewItemSoldierPage" className="text-sm font-normal">הפריט מאוחסן</Label>
+                                        </div>
+                                      </>
                                     )}
 
                                     {selectedItemTypeForSoldierPageIsUnique === true && ( 
@@ -875,7 +911,7 @@ export function SoldierDetailClient({
                                                     <SelectContent>
                                                         <div className="p-2 sticky top-0 bg-background z-10">
                                                             <Input 
-                                                                placeholder="סנן לפי מספר סריאלי..."
+                                                                placeholder="סנן לפי סוג/מספר סריאלי..."
                                                                 value={linkItemSearchTerm} 
                                                                 onChange={(e) => {
                                                                     e.stopPropagation();
@@ -890,7 +926,7 @@ export function SoldierDetailClient({
                                                         ) : (
                                                             availableUniqueItemsToLink.map(item => (
                                                                 <SelectItem key={item.id} value={item.id}>
-                                                                    {item.itemTypeName} - {item.itemId}
+                                                                    {item.itemTypeName} - {item.itemId} {item.isStored ? "(מאוחסן)" : ""}
                                                                 </SelectItem>
                                                             ))
                                                         )}
@@ -927,6 +963,10 @@ export function SoldierDetailClient({
                             )}
                             <CardTitle className="text-lg">{item.itemTypeName || "פריט לא מסווג"}</CardTitle>
                             <CardDescription>מס' סריאלי: {item.itemId}</CardDescription>
+                            <CardDescription className="flex items-center">
+                                {item.isStored ? <PackageX className="w-3.5 h-3.5 me-1.5 text-orange-500" /> : <PackageCheck className="w-3.5 h-3.5 me-1.5 text-green-600" />}
+                                סטטוס: {item.isStored ? "מאוחסן" : "מונפק"}
+                            </CardDescription>
                         </CardHeader>
                         <CardFooter>
                             <Button variant="outline" size="sm" asChild className="w-full">
@@ -1071,7 +1111,3 @@ export function SoldierDetailClient({
     </div>
   );
 }
-
-    
-
-    
