@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Edit3, Upload, FileText, Download, Eye, RefreshCw, FileUp } from "lucide-react";
+import { PlusCircle, Trash2, Edit3, Upload, FileText, Download, Eye, RefreshCw, FileUp, Package, Archive } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -135,6 +135,9 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             name: values.name,
             divisionId: values.divisionId,
             divisionName,
+            // Preserve armory summary if it exists, otherwise set to defaults
+            assignedUniqueArmoryItemsCount: editingSoldier.assignedUniqueArmoryItemsCount || 0,
+            assignedNonUniqueArmoryItemsSummary: editingSoldier.assignedNonUniqueArmoryItemsSummary || [],
         };
         setSoldiers(prev => prev.map(s => s.id === updatedOrNewSoldier!.id ? updatedOrNewSoldier! : s));
         toast({ title: "הצלחה", description: "פרטי החייל עודכנו." });
@@ -142,7 +145,10 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
         updatedOrNewSoldier = {
             ...newSoldierServerData,
-            documents: newSoldierServerData.documents || []
+            documents: newSoldierServerData.documents || [],
+            // New soldiers won't have armory items initially
+            assignedUniqueArmoryItemsCount: 0,
+            assignedNonUniqueArmoryItemsSummary: [],
         };
         setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
         toast({ title: "הצלחה", description: "חייל נוסף בהצלחה." });
@@ -404,7 +410,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
-      // Handle Firestore Timestamp object
       date = (timestampInput as any).toDate();
     } else {
       console.warn("Invalid date input to formatDate (AllSoldiersClient):", timestampInput);
@@ -670,22 +675,52 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                   <CardDescription>ת.ז. {soldier.id}</CardDescription>
                   <CardDescription>פלוגה: {soldier.divisionName || "לא משויך"}</CardDescription>
               </CardHeader>
-              <CardContent className="flex-grow">
-                {soldier.documents && soldier.documents.length > 0 ? (
-                  <>
-                    <p className="text-xs font-medium mt-2 mb-1">מסמכים ({soldier.documents.length}):</p>
-                    <ul className="space-y-1">
-                      {soldier.documents.slice(0, 2).map(doc => (
-                        <li key={doc.id} className="text-xs text-muted-foreground truncate">
-                          <FileText className="inline h-3 w-3 me-1" />{doc.fileName}
-                        </li>
-                      ))}
-                      {soldier.documents.length > 2 && <li className="text-xs text-muted-foreground">ועוד...</li>}
-                    </ul>
-                  </>
-                ) : (
-                  <p className="text-xs text-muted-foreground mt-2">אין מסמכים מצורפים.</p>
-                )}
+              <CardContent className="flex-grow space-y-3">
+                <div>
+                  <p className="text-xs font-medium mb-0.5">סיכום נשקייה:</p>
+                  {(soldier.assignedUniqueArmoryItemsCount && soldier.assignedUniqueArmoryItemsCount > 0) || (soldier.assignedNonUniqueArmoryItemsSummary && soldier.assignedNonUniqueArmoryItemsSummary.length > 0) ? (
+                    <>
+                      {soldier.assignedUniqueArmoryItemsCount && soldier.assignedUniqueArmoryItemsCount > 0 ? (
+                        <p className="text-xs text-muted-foreground flex items-center">
+                          <Package className="inline h-3.5 w-3.5 me-1.5" />
+                          פריטים ייחודיים: {soldier.assignedUniqueArmoryItemsCount}
+                        </p>
+                      ) : null}
+                      {soldier.assignedNonUniqueArmoryItemsSummary && soldier.assignedNonUniqueArmoryItemsSummary.length > 0 ? (
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          <p className="flex items-center"><Archive className="inline h-3.5 w-3.5 me-1.5" />פריטים כמותיים:</p>
+                          <ul className="list-disc ps-6 space-y-0.5">
+                            {soldier.assignedNonUniqueArmoryItemsSummary.map(summary => (
+                              <li key={summary.itemTypeName}>{summary.itemTypeName}: {summary.quantity}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">אין פריטי נשקייה משויכים.</p>
+                  )}
+                </div>
+                <Separator className="my-2" />
+                <div>
+                    <p className="text-xs font-medium mb-0.5">סיכום מסמכים:</p>
+                    {soldier.documents && soldier.documents.length > 0 ? (
+                    <>
+                        <p className="text-xs text-muted-foreground flex items-center">
+                            <FileText className="inline h-3.5 w-3.5 me-1.5" />
+                            סה"כ מסמכים: {soldier.documents.length}
+                        </p>
+                        <ul className="space-y-0.5 ps-6 list-disc text-xs text-muted-foreground">
+                        {soldier.documents.slice(0, 2).map(doc => (
+                            <li key={doc.id} className="truncate">{doc.fileName}</li>
+                        ))}
+                        {soldier.documents.length > 2 && <li>ועוד...</li>}
+                        </ul>
+                    </>
+                    ) : (
+                    <p className="text-xs text-muted-foreground">אין מסמכים מצורפים.</p>
+                    )}
+                </div>
               </CardContent>
               <CardFooter>
                 <Button variant="outline" size="sm" asChild className="w-full">
@@ -702,7 +737,3 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
-
-    
-
-    
