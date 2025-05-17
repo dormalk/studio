@@ -94,10 +94,8 @@ const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRef
             message: "לא ניתן להזין מספר מדף אם הפריט אינו מאוחסן",
         });
       }
-      if (data.isStored === false && isUnique) { // No need to check linkedSoldierId here as it's auto-linked
-        // This validation is mostly for the main armory page.
-        // Here, the item is always linked to the current soldier if not stored.
-      }
+      // Validation for isStored=false && linkedSoldierId=null is implicitly handled
+      // because items added from this page are always linked to the current soldier.
     }
   }
 });
@@ -119,6 +117,9 @@ const linkExistingItemSchema = z.object({
 });
 type LinkExistingItemFormData = z.infer<typeof linkExistingItemSchema>;
 
+const MAX_FILE_SIZE_MB = 3;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 
 export function SoldierDetailClient({
     soldier: initialSoldier,
@@ -137,6 +138,7 @@ export function SoldierDetailClient({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileNameBase, setFileNameBase] = useState<string>("");
   const [fileNameExt, setFileNameExt] = useState<string>("");
+  const [fileSizeError, setFileSizeError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const armoryItemFileInputRef = useRef<HTMLInputElement>(null);
@@ -306,16 +308,34 @@ export function SoldierDetailClient({
   }, [addOrLinkDialogMode]);
 
 
+  const formatFileSize = (bytes: number, decimals = 2) => {
+    if (!bytes || bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  }
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setFileSizeError(null); // Clear previous size error
     if (event.target.files && event.target.files.length > 0) {
         const file = event.target.files[0];
+
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            setFileSizeError(`הקובץ גדול מדי. גודל מקסימלי: ${MAX_FILE_SIZE_MB}MB.`);
+            setSelectedFile(null);
+            setFileNameBase("");
+            setFileNameExt("");
+            if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input
+            return;
+        }
+
         setSelectedFile(file);
-        
         const nameParts = file.name.split('.');
         const ext = nameParts.length > 1 ? "." + nameParts.pop() : "";
-        const base = nameParts.join('.');
-        
-        setFileNameBase(""); 
+        // const base = nameParts.join('.'); // Original base name
+        setFileNameBase(""); // Start with empty editable base name
         setFileNameExt(ext);
     } else {
         setSelectedFile(null);
@@ -323,6 +343,7 @@ export function SoldierDetailClient({
         setFileNameExt("");
     }
   };
+
 
   const handleDocumentUpload = async () => {
     if (!selectedFile || !soldier) {
@@ -333,6 +354,11 @@ export function SoldierDetailClient({
         toast({ variant: "destructive", title: "שגיאה", description: "שם הקובץ (ללא סיומת) הינו שדה חובה."});
         return;
     }
+    if (fileSizeError) {
+        toast({ variant: "destructive", title: "שגיאת גודל קובץ", description: fileSizeError });
+        return;
+    }
+
     setIsUploading(true);
     const formData = new FormData();
     formData.append("file", selectedFile);
@@ -350,6 +376,7 @@ export function SoldierDetailClient({
       setSelectedFile(null);
       setFileNameBase("");
       setFileNameExt("");
+      setFileSizeError(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
       console.error("--- CLIENT-SIDE ERROR (handleDocumentUpload SoldierDetailClient) ---");
@@ -426,7 +453,7 @@ export function SoldierDetailClient({
                 (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = matchedType.isUnique;
                 if (matchedType.isUnique) { 
                     addUniqueArmoryItemForm.setValue("itemId", result.itemId);
-                    addUniqueArmoryItemForm.setValue("isStored", true); // Default to stored on scan success for unique
+                    addUniqueArmoryItemForm.setValue("isStored", true); 
                 }
                 addUniqueArmoryItemForm.trigger(["itemTypeId", "itemId", "isStored"]);
                 toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}, מספר סריאלי: ${result.itemId}` });
@@ -647,16 +674,6 @@ export function SoldierDetailClient({
     }
   }
 
-
-  const formatFileSize = (bytes: number, decimals = 2) => {
-    if (!bytes || bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-  }
-
   const formatDate = (timestampInput: string | Date | Timestamp | undefined): string => {
     if (!timestampInput) return 'לא זמין';
     let date: Date;
@@ -665,9 +682,9 @@ export function SoldierDetailClient({
       date = new Date(timestampInput);
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { // For Firestore Timestamps
+    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { 
       date = (timestampInput as any).toDate();
-    } else if (typeof timestampInput === 'object' && 'seconds' in timestampInput && 'nanoseconds' in timestampInput) { // For Firestore-like Timestamp objects from server
+    } else if (typeof timestampInput === 'object' && 'seconds' in timestampInput && 'nanoseconds' in timestampInput) { 
       date = new Date((timestampInput as any).seconds * 1000 + (timestampInput as any).nanoseconds / 1000000);
     }
      else {
@@ -785,18 +802,22 @@ export function SoldierDetailClient({
                     placeholder="הכנס שם קובץ"
                     className="mt-1"
                 />
-                {fileNameExt && (
-                    <p className="text-xs text-muted-foreground">סיומת: {fileNameExt}</p>
+                 {selectedFile && (
+                    <p className="text-xs text-muted-foreground">
+                        גודל: {formatFileSize(selectedFile.size)}
+                        {fileNameExt && ` | סיומת: ${fileNameExt}`}
+                    </p>
                 )}
                 {fileNameBase.trim() && fileNameExt && (
                      <p className="text-xs text-muted-foreground">שם קובץ מלא צפוי: {fileNameBase.trim() + fileNameExt}</p>
                 )}
+                {fileSizeError && <p className="text-destructive text-sm">{fileSizeError}</p>}
             </div>
           )}
           <Button
             type="button"
             onClick={handleDocumentUpload}
-            disabled={!selectedFile || isUploading || !fileNameBase.trim()}
+            disabled={!selectedFile || isUploading || !fileNameBase.trim() || !!fileSizeError}
             className="mt-2"
           >
             {isUploading ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
@@ -918,7 +939,7 @@ export function SoldierDetailClient({
                                                         } else if (type && type.isUnique) {
                                                             const currentIsStored = addUniqueArmoryItemForm.getValues("isStored");
                                                             addUniqueArmoryItemForm.setValue("isStored", currentIsStored === undefined ? true : currentIsStored); 
-                                                            if (!currentIsStored) { // If not stored (i.e. false), clear shelf number
+                                                            if (currentIsStored === false) { 
                                                                 addUniqueArmoryItemForm.setValue("shelfNumber", "");
                                                             }
                                                         }
@@ -1245,3 +1266,4 @@ export function SoldierDetailClient({
   );
 }
 
+    
