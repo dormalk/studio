@@ -93,7 +93,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
   const soldierForm = useForm<z.infer<typeof soldierSchema>>({
     resolver: zodResolver(soldierSchema),
-    defaultValues: { id: "", name: "", divisionId: "" },
+    defaultValues: { id: "", name: "", divisionId: "unassigned" },
   });
 
   useEffect(() => {
@@ -112,13 +112,14 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         divisionId: editingSoldier.divisionId,
       });
     } else {
-      soldierForm.reset({ id: "", name: "", divisionId: "" });
+      // This is for a new soldier dialog
+      soldierForm.reset({ id: "", name: "", divisionId: "unassigned" });
     }
     setSelectedFile(null);
     setEditableFileName("");
     if (fileInputRef.current) fileInputRef.current.value = "";
 
-  }, [editingSoldier, soldierForm, isSoldierDialogOpen]);
+  }, [editingSoldier, soldierForm, isSoldierDialogOpen]); // Added isSoldierDialogOpen to dependencies
 
   useEffect(() => {
     setCurrentPage(1);
@@ -145,27 +146,28 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       if (editingSoldier) {
         await updateSoldier(editingSoldier.id, {name: values.name, divisionId: values.divisionId});
          updatedOrNewSoldier = {
-            ...editingSoldier,
+            ...editingSoldier, // Preserve existing fields like documents and armory summaries
             name: values.name,
             divisionId: values.divisionId,
             divisionName,
-            assignedUniqueArmoryItemsDetails: editingSoldier.assignedUniqueArmoryItemsDetails || [],
-            assignedNonUniqueArmoryItemsSummary: editingSoldier.assignedNonUniqueArmoryItemsSummary || [],
         };
         setSoldiers(prev => prev.map(s => s.id === updatedOrNewSoldier!.id ? updatedOrNewSoldier! : s));
         toast({ title: "הצלחה", description: "פרטי החייל עודכנו." });
       } else {
         const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
-        updatedOrNewSoldier = {
-            ...newSoldierServerData,
-            documents: newSoldierServerData.documents || [],
-            assignedUniqueArmoryItemsDetails: [],
-            assignedNonUniqueArmoryItemsSummary: [],
+        updatedOrNewSoldier = { // Construct a complete Soldier object
+            ...newSoldierServerData, // This should include id, name, divisionId from server
+            divisionName, // Add the resolved divisionName
+            documents: newSoldierServerData.documents || [], // Ensure documents array exists
+            assignedUniqueArmoryItemsDetails: [], // Initialize armory details for new soldier
+            assignedNonUniqueArmoryItemsSummary: [], // Initialize armory summary for new soldier
         };
         setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
         toast({ title: "הצלחה", description: "חייל נוסף בהצלחה." });
         setEditingSoldier(updatedOrNewSoldier); 
       }
+      // Do not close dialog here if it's a new soldier, allow document upload
+      // setIsSoldierDialogOpen(false); 
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת חייל נכשלה." });
     }
@@ -188,7 +190,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
   const openAddNewSoldierDialog = () => {
     setEditingSoldier(null);
-    soldierForm.reset({ id: "", name: "", divisionId: divisions[0]?.id || "unassigned"});
+    soldierForm.reset({ id: "", name: "", divisionId: "unassigned"});
     setIsSoldierDialogOpen(true);
   };
 
@@ -196,7 +198,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     if (event.target.files && event.target.files.length > 0) {
         const file = event.target.files[0];
         setSelectedFile(file);
-        setEditableFileName(file.name);
+        setEditableFileName(file.name); // Initialize editable name with original file name
     } else {
         setSelectedFile(null);
         setEditableFileName("");
@@ -219,11 +221,13 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
     try {
       const newDocument = await uploadSoldierDocument(editingSoldier.id, formData);
+      // Update the editingSoldier state to include the new document
       setEditingSoldier(prev => {
         if (!prev) return null;
         const updatedDocs = [...(prev.documents || []), newDocument];
         return { ...prev, documents: updatedDocs };
       });
+       // Also update the main soldiers list for immediate reflection if needed elsewhere
       setSoldiers(prevSoldiers => prevSoldiers.map(s =>
         s.id === editingSoldier.id
           ? { ...s, documents: [...(s.documents || []), newDocument] }
@@ -231,7 +235,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       ));
       toast({ title: "הצלחה", description: `מסמך '${newDocument.fileName}' הועלה בהצלחה.` });
       setSelectedFile(null);
-      setEditableFileName("");
+      setEditableFileName(""); // Reset editable file name
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
       console.error("--- CLIENT-SIDE ERROR (handleDocumentUpload AllSoldiersClient) ---");
@@ -261,6 +265,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       ));
       toast({ title: "הצלחה", description: "המסמך נמחק." });
     } catch (error: any) {
+      // Log the full error for better debugging on the client-side as well
       console.error("Client-side document delete error details (AllSoldiersClient):", error);
       toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
     }
@@ -296,6 +301,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const jsonDataRaw = XLSX.utils.sheet_to_json(worksheet, {
           header: 1, 
           defval: '', 
+          blankrows: false,
         }) as Array<any[]>;
 
         if (!jsonDataRaw || jsonDataRaw.length < 1) { 
@@ -322,14 +328,20 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           toast({
             variant: "destructive",
             title: "שגיאת מבנה קובץ",
-            description: `הכותרות הבאות חסרות או שגויות בשורה הראשונה של הקובץ: ${missingHeaders.join(', ')}. ודא שהכותרות תואמות בדיוק (כולל אותיות גדולות/קטנות ורווחים) ונסה שנית.`,
+            description: (
+              <>
+                הכותרות הבאות חסרות או שגויות בשורה הראשונה של הקובץ: {missingHeaders.join(', ')}. 
+                <br />
+                ודא שהכותרות תואמות בדיוק (כולל אותיות גדולות/קטנות ורווחים) ונסה שנית.
+              </>
+            ),
             duration: 15000, 
           });
           setIsImporting(false);
           return;
         }
         
-        const dataRows = jsonDataRaw.slice(1); 
+        const dataRows = jsonDataRaw.slice(1).filter(row => row.some(cell => String(cell).trim() !== '')); 
         if (dataRows.length === 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים לייבוא בקובץ (לאחר שורת הכותרות)." });
             setIsImporting(false);
@@ -342,7 +354,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             id: String(rowArray[idIndex] || "").trim(),
             divisionName: String(rowArray[divisionIndex] || "").trim(),
           }))
-          .filter(soldier => soldier.id && soldier.name && soldier.divisionName);
+          .filter(soldier => soldier.id && soldier.name && soldier.divisionName); // Filter out rows where essential data is missing
 
         if (soldiersToImport.length === 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים תקינות (עם כל השדות הנדרשים) לייבוא בקובץ. ודא שכל שורה מכילה ערכים עבור 'שם החייל', 'מספר אישי', ו'שם הפלוגה'." });
@@ -353,7 +365,14 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const result: ImportResult = await importSoldiers(soldiersToImport);
 
         if (result.successCount > 0) {
-          setSoldiers(prev => [...prev, ...result.addedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
+          // Enrich newly added soldiers with default empty armory/document summaries for client-side consistency
+          const enrichedAddedSoldiers = result.addedSoldiers.map(s => ({
+            ...s,
+            documents: s.documents || [],
+            assignedUniqueArmoryItemsDetails: [],
+            assignedNonUniqueArmoryItemsSummary: [],
+          }));
+          setSoldiers(prev => [...prev, ...enrichedAddedSoldiers].sort((a,b) => a.name.localeCompare(b.name)));
           toast({
             title: "ייבוא הושלם",
             description: `${result.successCount} חיילים נוספו בהצלחה.`,
@@ -365,13 +384,13 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           let errorDescriptionContent: React.ReactNode;
           if (result.errorCount === 1 && result.errors[0]) {
             const err = result.errors[0];
-            errorDescriptionContent = `שגיאה בשורה ${err.rowNumber} (ת.ז: ${err.soldierId || 'לא צוין'}, שם: ${err.soldierName || 'לא צוין'}): ${err.reason}`;
+            errorDescriptionContent = `שגיאה בשורה ${err.rowNumber} (מ.א.: ${err.soldierId || 'לא צוין'}, שם: ${err.soldierName || 'לא צוין'}): ${err.reason}`;
           } else {
             const firstError = result.errors[0];
             errorDescriptionContent = (
               <>
                 {`${result.errorCount} שגיאות בייבוא. `}
-                {firstError ? `שגיאה ראשונה (שורה ${firstError.rowNumber}, ת.ז: ${firstError.soldierId || 'לא צוין'}): ${firstError.reason}. ` : ''}
+                {firstError ? `שגיאה ראשונה (שורה ${firstError.rowNumber}, מ.א.: ${firstError.soldierId || 'לא צוין'}): ${firstError.reason}. ` : ''}
                 {'נא לבדוק את הקונסולה לפרטים נוספים על כל השגיאות.'}
               </>
             );
@@ -383,10 +402,11 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             duration: result.errorCount === 1 ? 10000 : 15000 
           });
         }
-
+        
         if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length > 0) {
              toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ (ייתכן שכולם כבר קיימים או שהשורות לא הכילו את כל הנתונים הנדרשים)." });
         }
+
 
         setImportFile(null);
         if (importFileInputRef.current) importFileInputRef.current.value = "";
@@ -422,8 +442,13 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
+      // Handle Firestore Timestamp object
       date = (timestampInput as any).toDate();
-    } else {
+    } else if (timestampInput && typeof timestampInput === 'object' && 'seconds' in timestampInput && 'nanoseconds' in timestampInput) {
+      // Handle plain object with seconds/nanoseconds (less common but good for robustness)
+      date = new Date((timestampInput as any).seconds * 1000 + (timestampInput as any).nanoseconds / 1000000);
+    }
+     else {
       console.warn("Invalid date input to formatDate (AllSoldiersClient):", timestampInput);
       return 'תאריך לא תקין';
     }
@@ -494,8 +519,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           onOpenChange={(isOpen) => {
             setIsSoldierDialogOpen(isOpen);
             if (!isOpen) {
-              setEditingSoldier(null);
-              soldierForm.reset();
+              setEditingSoldier(null); // Clear editing state
+              soldierForm.reset({ id: "", name: "", divisionId: "unassigned" }); // Reset form to defaults for new soldier
               setSelectedFile(null);
               setEditableFileName("");
               if (fileInputRef.current) fileInputRef.current.value = "";
@@ -526,15 +551,18 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                   name="divisionId"
                   control={soldierForm.control}
                   render={({ field }) => (
-                    <Select onValueChange={field.onChange} value={field.value || ""} defaultValue={field.value || ""}>
+                    <Select 
+                        onValueChange={field.onChange} 
+                        value={field.value} // Directly use field.value
+                    >
                       <SelectTrigger>
-                        <SelectValue placeholder="בחר פלוגה" />
+                        <SelectValue placeholder="בחר פלוגה" /> 
                       </SelectTrigger>
                       <SelectContent>
                         {divisions.map(div => (
                           <SelectItem key={div.id} value={div.id}>{div.name}</SelectItem>
                         ))}
-                        <SelectItem value="unassigned">לא משויך</SelectItem>
+                        <SelectItem value="unassigned">לא משויך</SelectItem> 
                       </SelectContent>
                     </Select>
                   )}
@@ -780,3 +808,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
+
+
+    
