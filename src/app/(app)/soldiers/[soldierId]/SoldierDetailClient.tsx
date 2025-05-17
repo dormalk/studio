@@ -308,9 +308,8 @@ export function SoldierDetailClient({
         
         const nameParts = file.name.split('.');
         const ext = nameParts.length > 1 ? "." + nameParts.pop() : "";
-        // const base = nameParts.join('.'); // Not needed if we start empty
         
-        setFileNameBase(""); // Default to empty as requested
+        setFileNameBase(""); 
         setFileNameExt(ext);
     } else {
         setSelectedFile(null);
@@ -1047,10 +1046,10 @@ export function SoldierDetailClient({
                                 </CardDescription>
                             )}
                         </CardHeader>
-                        <CardFooter className="flex-col items-stretch gap-2">
+                        <CardFooter className="flex flex-row items-center gap-2">
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
-                                    <Button variant="outline" size="sm" className="w-full"><Unlink2 className="me-2 h-3.5 w-3.5"/> בטל שיוך</Button>
+                                    <Button variant="outline" size="sm" className="flex-1"><Unlink2 className="me-2 h-3.5 w-3.5"/> בטל שיוך</Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                     <AlertDialogHeader>
@@ -1065,7 +1064,7 @@ export function SoldierDetailClient({
                                     </AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
-                            <Button variant="outline" size="sm" asChild className="w-full">
+                            <Button variant="outline" size="sm" asChild className="flex-1">
                             <Link href={`/armory`}>
                                 הצג בנשקייה
                             </Link>
@@ -1208,3 +1207,5 @@ export function SoldierDetailClient({
   );
 }
 
+
+    
