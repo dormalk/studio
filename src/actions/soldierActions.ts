@@ -16,7 +16,6 @@ import {
   query,
   where,
   writeBatch,
-  FieldValue
 } from "firebase/firestore";
 import {
   ref,
@@ -198,11 +197,9 @@ export async function updateSoldier(soldierId: string, updates: Partial<Omit<Sol
             revalidatePath(`/divisions/${oldSoldierData.divisionId}`);
         }
     } else if (updates.divisionId === undefined && oldSoldierData?.divisionId && oldSoldierData.divisionId !== "unassigned") {
-        // This case might be if divisionId is not part of updates but other fields are.
-        // Revalidating based on oldSoldierData.divisionId might be redundant if only name changed, but safe.
         revalidatePath(`/divisions/${oldSoldierData.divisionId}`);
     }
-    revalidatePath("/divisions"); // General revalidation for divisions page due to potential soldier count changes
+    revalidatePath("/divisions");
   } catch (error) {
     console.error("Error updating soldier: ", error);
     throw new Error("עדכון פרטי חייל נכשל.");
@@ -219,7 +216,6 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
     }
     const soldierData = soldierSnap.data() as Soldier;
 
-    // Delete associated documents from Firebase Storage
     if (soldierData.documents && soldierData.documents.length > 0) {
       for (const docToDelete of soldierData.documents) {
         if (docToDelete.storagePath) {
@@ -227,25 +223,21 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
           try {
             await deleteObject(storageRef);
           } catch (storageError: any) {
-            // Log warning but continue, as Firestore entry should still be removed
             console.warn(`Error deleting document ${docToDelete.fileName} from storage for soldier ${soldierId}: `, storageError.message || storageError);
           }
         }
       }
     }
     
-    // Unlink armory items
     const armoryItemsRef = collection(db, "armoryItems");
     const batch = writeBatch(db);
 
-    // For unique items linked to this soldier
     const qArmoryUnique = query(armoryItemsRef, where("linkedSoldierId", "==", soldierId), where("isUniqueItem", "==", true));
     const armorySnapshotUnique = await getDocs(qArmoryUnique);
     armorySnapshotUnique.forEach(itemDoc => {
         batch.update(itemDoc.ref, { linkedSoldierId: null });
     });
 
-    // For non-unique items assigned to this soldier
     const allNonUniqueItemsSnapshot = await getDocs(query(armoryItemsRef, where("isUniqueItem", "==", false)));
     allNonUniqueItemsSnapshot.forEach(itemDoc => {
         const itemData = itemDoc.data() as ArmoryItem; 
@@ -256,17 +248,14 @@ export async function deleteSoldier(soldierId: string): Promise<void> {
     });
     await batch.commit();
 
-
-    // Delete the soldier document from Firestore
     await deleteDoc(soldierDocRef);
 
-    // Revalidate paths
     revalidatePath("/soldiers");
     if (soldierData.divisionId && soldierData.divisionId !== "unassigned") {
       revalidatePath(`/divisions/${soldierData.divisionId}`);
     }
-    revalidatePath("/divisions"); // Revalidate overall divisions page for counts
-    revalidatePath("/armory"); // Revalidate armory for unlinked items
+    revalidatePath("/divisions");
+    revalidatePath("/armory");
 
   } catch (error) {
     console.error("Error deleting soldier: ", error);
@@ -281,8 +270,8 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
   const customFileName = formData.get("customFileName") as string | null;
 
   if (!(file instanceof File) || file.size === 0) {
-    console.error("uploadSoldierDocument: No file or empty file received.", file);
-    throw new Error("לא נבחר קובץ, או שהקובץ ריק.");
+    console.error("uploadSoldierDocument: Invalid or empty file received.", file);
+    throw new Error("קובץ לא תקין או ריק. יש לבחור קובץ להעלאה.");
   }
 
   const displayFileName = customFileName && customFileName.trim() !== "" ? customFileName.trim() : file.name;
@@ -333,14 +322,14 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
       console.error("Error name:", error.name);
       console.error("Error message:", error.message);
       console.error("Error code (if any):", (error as any).code);
-      console.error("Error stack:", error.stack);
+      console.error("Error stack (if any):", error.stack);
     }
     console.error("--------------------------------------------------");
 
     let userFriendlyMessage = "העלאת מסמך נכשלה עקב שגיאת שרת. נסה שוב מאוחר יותר.";
 
     if (error && typeof error === 'object') {
-        const firebaseError = error as any; // Cast to any to access .code
+        const firebaseError = error as any;
         if (firebaseError.code) { 
             switch (firebaseError.code) {
                 case 'storage/unauthorized':
@@ -355,11 +344,14 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
                 case 'storage/quota-exceeded':
                     userFriendlyMessage = "שגיאה: חריגה ממכסת האחסון בפרויקט.";
                     break;
-                case 'permission-denied': // Firestore permission error
-                    userFriendlyMessage = "שגיאת הרשאות בעדכון מסד הנתונים של החייל.";
+                case 'permission-denied': // Firestore permission error OR Storage permission error not caught by specific codes
+                    userFriendlyMessage = "שגיאת הרשאות בעת ניסיון גישה למשאב. ודא שההרשאות ב-Firestore וב-Storage תקינות.";
                     break;
                 case 'not-found': // Firestore document not found
                     userFriendlyMessage = "שגיאה: מסמך החייל לא נמצא במסד הנתונים.";
+                    break;
+                case 'invalid-argument':
+                    userFriendlyMessage = `שגיאת קלט לא חוקי: ${firebaseError.message || 'פרטים לא ידועים'}`;
                     break;
                 default:
                     userFriendlyMessage = `שגיאת שרת (${firebaseError.code}). נסה שוב מאוחר יותר.`;
@@ -369,6 +361,10 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
         }
     } else if (typeof error === 'string' && error.trim() !== "") {
         userFriendlyMessage = error;
+    }
+    
+    if (typeof userFriendlyMessage !== 'string' || userFriendlyMessage.trim() === "") {
+        userFriendlyMessage = "אירעה שגיאה לא צפויה בהעלאת המסמך.";
     }
     
     throw new Error(userFriendlyMessage);
@@ -418,6 +414,8 @@ export async function deleteSoldierDocument(soldierId: string, documentId: strin
         switch((error as any).code) {
             case 'storage/unauthorized':
                 simpleMessage = "שגיאת הרשאות במחיקת הקובץ מהאחסון."; break;
+            case 'permission-denied':
+                simpleMessage = "שגיאת הרשאות בעת ניסיון מחיקה."; break;
             default:
                 simpleMessage = `שגיאת שרת (${(error as any).code}) בעת מחיקת המסמך.`;
         }
@@ -498,3 +496,4 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
   return { successCount, errorCount, errors, addedSoldiers };
 }
 
+    

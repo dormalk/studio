@@ -29,7 +29,7 @@ import {
     scanArmoryItemImage,
     manageSoldierAssignmentToNonUniqueItem,
     getArmoryItemsBySoldierId,
-    getArmoryItems,
+    getArmoryItems, // Added this import
     updateArmoryItem,
 } from "@/actions/armoryActions";
 import Link from "next/link";
@@ -237,18 +237,18 @@ export function SoldierDetailClient({
       setScannedArmoryImagePreview(null);
       setSelectedItemTypeForSoldierPageIsUnique(null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
-      (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create'; // default back to create
+      (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create'; 
       setAddOrLinkDialogMode('create');
       setLinkItemSearchTerm('');
       if (armoryItemFileInputRef.current) armoryItemFileInputRef.current.value = "";
     } else {
-        // When dialog opens, or mode changes, reset the *other* form
         if (addOrLinkDialogMode === 'create') {
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
         } else if (addOrLinkDialogMode === 'link') {
             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined});
             setScannedArmoryImagePreview(null);
             setSelectedItemTypeForSoldierPageIsUnique(null);
+            setLinkItemSearchTerm('');
         }
     }
   }, [isAddOrLinkUniqueArmoryItemDialogOpen, addOrLinkDialogMode, addUniqueArmoryItemForm, linkExistingItemForm]);
@@ -558,7 +558,7 @@ export function SoldierDetailClient({
 
 
   const formatFileSize = (bytes: number, decimals = 2) => {
-    if (bytes === 0) return '0 Bytes';
+    if (!bytes || bytes === 0) return '0 Bytes';
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
@@ -577,12 +577,12 @@ export function SoldierDetailClient({
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
       date = (timestampInput as any).toDate();
     } else {
-      console.warn("Invalid date input to formatDate:", timestampInput);
+      console.warn("Invalid date input to formatDate (SoldierDetailClient):", timestampInput);
       return 'תאריך לא תקין';
     }
 
     if (isNaN(date.getTime())) {
-      console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
+      console.warn("Parsed date is invalid in formatDate (SoldierDetailClient):", date, "from input:", timestampInput);
       return 'תאריך לא תקין';
     }
     return date.toLocaleDateString('he-IL');
@@ -1070,3 +1070,4 @@ export function SoldierDetailClient({
   );
 }
 
+    

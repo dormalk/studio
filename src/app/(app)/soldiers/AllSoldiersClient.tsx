@@ -216,8 +216,15 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       setEditableFileName("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
-      console.error("Client-side document upload error details:", error);
-      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה." });
+      console.error("--- CLIENT-SIDE ERROR (handleDocumentUpload AllSoldiersClient) ---");
+      console.error("Error object received by client:", error);
+      if (error && typeof error === 'object' && error.message) {
+        console.error("Client-side error message:", error.message);
+      } else {
+        console.error("Raw error:", error);
+      }
+      console.error("--------------------------------------------------------------------");
+      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה. בדוק את הלוגים לפרטים נוספים." });
     } finally {
       setIsUploading(false);
     }
@@ -236,7 +243,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       ));
       toast({ title: "הצלחה", description: "המסמך נמחק." });
     } catch (error: any) {
-      console.error("Client-side document delete error details:", error);
+      console.error("Client-side document delete error details (AllSoldiersClient):", error);
       toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
     }
   };
@@ -269,11 +276,11 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const worksheet = workbook.Sheets[sheetName];
 
         const jsonDataRaw = XLSX.utils.sheet_to_json(worksheet, {
-          header: 1, // Read the first row as an array of header strings
-          defval: '', // Default value for empty cells
+          header: 1, 
+          defval: '', 
         }) as Array<any[]>;
 
-        if (!jsonDataRaw || jsonDataRaw.length < 1) { // Need at least one header row
+        if (!jsonDataRaw || jsonDataRaw.length < 1) { 
           toast({ variant: "destructive", title: "שגיאת מבנה קובץ", description: "הקובץ ריק או שאינו בפורמט Excel תקין (נדרשת שורת כותרות לפחות)." });
           setIsImporting(false);
           return;
@@ -304,7 +311,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           return;
         }
         
-        const dataRows = jsonDataRaw.slice(1); // Get data rows (all rows except the header)
+        const dataRows = jsonDataRaw.slice(1); 
         if (dataRows.length === 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים לייבוא בקובץ (לאחר שורת הכותרות)." });
             setIsImporting(false);
@@ -312,12 +319,12 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         }
 
         const soldiersToImport: SoldierImportData[] = dataRows
-          .map((rowArray: any[]) => ({ // Explicitly type rowArray
+          .map((rowArray: any[]) => ({ 
             name: String(rowArray[nameIndex] || "").trim(),
             id: String(rowArray[idIndex] || "").trim(),
             divisionName: String(rowArray[divisionIndex] || "").trim(),
           }))
-          .filter(soldier => soldier.id && soldier.name && soldier.divisionName); // Filter out rows with missing essential data
+          .filter(soldier => soldier.id && soldier.name && soldier.divisionName);
 
         if (soldiersToImport.length === 0) {
             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים תקינות (עם כל השדות הנדרשים) לייבוא בקובץ. ודא שכל שורה מכילה ערכים עבור 'שם החייל', 'מספר אישי', ו'שם הפלוגה'." });
@@ -380,7 +387,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   };
 
   const formatFileSize = (bytes: number, decimals = 2) => {
-    if (bytes === 0) return '0 Bytes';
+    if (!bytes || bytes === 0) return '0 Bytes';
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
@@ -397,15 +404,14 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
-      // Handle Firestore Timestamp object
       date = (timestampInput as any).toDate();
     } else {
-      console.warn("Invalid date input to formatDate:", timestampInput);
+      console.warn("Invalid date input to formatDate (AllSoldiersClient):", timestampInput);
       return 'תאריך לא תקין';
     }
 
     if (isNaN(date.getTime())) {
-      console.warn("Parsed date is invalid in formatDate:", date, "from input:", timestampInput);
+      console.warn("Parsed date is invalid in formatDate (AllSoldiersClient):", date, "from input:", timestampInput);
       return 'תאריך לא תקין';
     }
     return date.toLocaleDateString('he-IL');
@@ -695,3 +701,5 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
+
+    
