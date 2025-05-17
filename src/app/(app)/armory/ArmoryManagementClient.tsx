@@ -40,7 +40,7 @@ import {
 } from "@/actions/armoryActions";
 import { useToast } from "@/hooks/use-toast";
 import Image from "next/image";
-import Link from "next/link"; // Added Link import
+import Link from "next/link";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -166,7 +166,13 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       const isUnique = type ? type.isUnique : null;
       setSelectedItemTypeIsUnique(isUnique);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = isUnique;
-      if (isUnique === false || (isUnique === true && itemForm.getValues("isStored") === false)) {
+      if (type && type.isUnique) {
+        const currentIsStored = itemForm.getValues("isStored");
+        itemForm.setValue("isStored", currentIsStored || false);
+        if (currentIsStored === false) {
+            itemForm.setValue("shelfNumber", "");
+        }
+      } else {
         itemForm.setValue("shelfNumber", "");
       }
     } else {
@@ -180,7 +186,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   useEffect(() => {
     if (editingItem) {
       const type = armoryItemTypes.find(t => t.id === editingItem.itemTypeId);
-      const isUnique = type ? type.isUnique : editingItem.isUniqueItem; 
+      const isUnique = type ? type.isUnique : editingItem.isUniqueItem;
       const currentIsStored = isUnique ? (editingItem.isStored !== undefined ? editingItem.isStored : false) : false;
       setSelectedItemTypeIsUnique(isUnique);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = isUnique;
@@ -201,7 +207,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = null;
       setScannedImagePreview(null);
     }
-    setSoldierFilterInDialog(""); // Reset soldier filter when dialog opens/mode changes
+    setSoldierFilterInDialog("");
   }, [editingItem, itemForm, isItemDialogOpen, armoryItemTypes]);
 
 
@@ -264,18 +270,18 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
           if (currentItemType && currentItemType.isUnique) {
             itemForm.setValue("itemId", result.itemId);
-          } else if (!currentItemType) { 
+          } else if (!currentItemType && selectedItemTypeIsUnique === true) {
              itemForm.setValue("itemId", result.itemId);
           }
 
           const matchedType = armoryItemTypes.find(type => type.name.toLowerCase() === result.itemType.toLowerCase());
           if (matchedType) {
             itemForm.setValue("itemTypeId", matchedType.id);
-            const typeForForm = armoryItemTypes.find(t => t.id === matchedType.id); 
+            const typeForForm = armoryItemTypes.find(t => t.id === matchedType.id);
             setSelectedItemTypeIsUnique(typeForForm ? typeForForm.isUnique : null);
             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = typeForForm ? typeForForm.isUnique : null;
-            if (typeForForm && !typeForForm.isUnique) itemForm.setValue("isStored", false); // Non-unique items are not stored
-            itemForm.trigger(); 
+            if (typeForForm && !typeForForm.isUnique) itemForm.setValue("isStored", false);
+            itemForm.trigger();
 
             toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}${matchedType.isUnique ? `, מספר סריאלי: ${result.itemId}` : ''}` });
           } else {
@@ -315,50 +321,50 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         imageUrl: validatedValues.photoDataUri || (editingItem?.imageUrl && !validatedValues.photoDataUri ? editingItem.imageUrl : undefined),
         itemId: type.isUnique ? validatedValues.itemId : undefined,
         linkedSoldierId: type.isUnique ? ((validatedValues.linkedSoldierId === NO_SOLDIER_LINKED_VALUE || !validatedValues.linkedSoldierId) ? undefined : validatedValues.linkedSoldierId) : undefined,
-        isStored: type.isUnique ? validatedValues.isStored : undefined,
+        isStored: type.isUnique ? (validatedValues.isStored !== undefined ? validatedValues.isStored : false) : undefined,
         shelfNumber: (type.isUnique && validatedValues.isStored) ? (validatedValues.shelfNumber || undefined) : undefined,
         totalQuantity: !type.isUnique ? validatedValues.totalQuantity : undefined,
       };
 
 
-      if (editingItem) { 
-        await updateArmoryItem(editingItem.id, dataToSave); 
+      if (editingItem) {
+        await updateArmoryItem(editingItem.id, dataToSave);
 
-        const updatedItemForClientState: ArmoryItem = {
+        const updatedItemClient: ArmoryItem = {
             id: editingItem.id,
             itemTypeId: validatedValues.itemTypeId,
-            isUniqueItem: type.isUnique,
             itemTypeName: type.name,
+            isUniqueItem: type.isUnique,
             imageUrl: dataToSave.imageUrl,
             itemId: type.isUnique ? validatedValues.itemId : undefined,
-            linkedSoldierId: type.isUnique ? dataToSave.linkedSoldierId : undefined, 
+            linkedSoldierId: type.isUnique ? dataToSave.linkedSoldierId : undefined,
             isStored: type.isUnique ? dataToSave.isStored : undefined,
             shelfNumber: (type.isUnique && dataToSave.isStored) ? dataToSave.shelfNumber : undefined,
-            linkedSoldierName: undefined, 
-            linkedSoldierDivisionName: undefined, 
             totalQuantity: !type.isUnique ? validatedValues.totalQuantity : undefined,
             assignments: !type.isUnique ? ( (editingItem.isUniqueItem && !type.isUnique) ? [] : (editingItem.assignments || []) ) : undefined,
+            linkedSoldierName: undefined,
+            linkedSoldierDivisionName: undefined,
         };
-        
-        if (updatedItemForClientState.isUniqueItem && updatedItemForClientState.linkedSoldierId) {
-            const soldier = soldiers.find(s => s.id === updatedItemForClientState.linkedSoldierId);
+
+        if (updatedItemClient.isUniqueItem && updatedItemClient.linkedSoldierId) {
+            const soldier = soldiers.find(s => s.id === updatedItemClient.linkedSoldierId);
             if (soldier) {
-                updatedItemForClientState.linkedSoldierName = soldier.name;
-                updatedItemForClientState.linkedSoldierDivisionName = soldier.divisionName || "פלוגה לא משויכת";
+                updatedItemClient.linkedSoldierName = soldier.name;
+                updatedItemClient.linkedSoldierDivisionName = soldier.divisionName || "פלוגה לא משויכת";
             }
         }
-        
-        setArmoryItems(prev => prev.map(item => item.id === editingItem.id ? updatedItemForClientState : item));
+
+        setArmoryItems(prev => prev.map(item => item.id === editingItem.id ? updatedItemClient : item));
         toast({ title: "הצלחה", description: "פרטי הפריט עודכנו." });
 
-      } else { 
-        const newItemFromServer = await addArmoryItem(dataToSave); 
+      } else {
+        const newItemFromServer = await addArmoryItem(dataToSave);
 
         const enrichedNewItem: ArmoryItem = {
             id: newItemFromServer.id,
             itemTypeId: newItemFromServer.itemTypeId,
             isUniqueItem: newItemFromServer.isUniqueItem,
-            itemTypeName: type.name, 
+            itemTypeName: type.name,
             imageUrl: newItemFromServer.imageUrl,
             itemId: newItemFromServer.isUniqueItem ? newItemFromServer.itemId : undefined,
             linkedSoldierId: newItemFromServer.isUniqueItem ? newItemFromServer.linkedSoldierId : undefined,
@@ -377,7 +383,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
               enrichedNewItem.linkedSoldierDivisionName = soldier.divisionName || "פלוגה לא משויכת";
           }
         }
-        
+
         setArmoryItems(prev => [...prev, enrichedNewItem]);
         toast({ title: "הצלחה", description: "פריט נוסף בהצלחה." });
       }
@@ -464,6 +470,32 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     XLSX.utils.book_append_sheet(workbook, worksheet, "פריטי נשקייה");
     XLSX.writeFile(workbook, "armory_items_export.xlsx");
     toast({ title: "הצלחה", description: "נתוני הנשקייה יוצאו ל-Excel."});
+  };
+
+  const handleUnlinkAndStoreItem = async (itemToUpdate: ArmoryItem) => {
+    if (!itemToUpdate.isUniqueItem) return;
+    try {
+      await updateArmoryItem(itemToUpdate.id, {
+        linkedSoldierId: null, // Unassign
+        isStored: true,      // Mark as stored
+      });
+      setArmoryItems(prevItems =>
+        prevItems.map(item =>
+          item.id === itemToUpdate.id
+            ? {
+                ...item,
+                linkedSoldierId: null,
+                linkedSoldierName: undefined,
+                linkedSoldierDivisionName: undefined,
+                isStored: true,
+              }
+            : item
+        )
+      );
+      toast({ title: "הצלחה", description: `הפריט "${itemToUpdate.itemTypeName} (${itemToUpdate.itemId})" נותק ואוחסן.` });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "שגיאה", description: error.message || "פעולת ביטול שיוך ואחסון נכשלה." });
+    }
   };
 
 
@@ -576,7 +608,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                 (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = null;
                 if(fileInputRef.current) fileInputRef.current.value = "";
                 itemForm.reset({ itemTypeId: "", itemId: "", totalQuantity: 1, linkedSoldierId: NO_SOLDIER_LINKED_VALUE, isStored: false, shelfNumber: "", photoDataUri: undefined });
-                setSoldierFilterInDialog(""); 
+                setSoldierFilterInDialog("");
               }
             }}>
             <DialogTrigger asChild>
@@ -599,24 +631,25 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                             const type = armoryItemTypes.find(t => t.id === value);
                             setSelectedItemTypeIsUnique(type ? type.isUnique : null);
                             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = type ? type.isUnique : null;
-                            if (type) { 
-                                if (type.isUnique) { 
+                            if (type) {
+                                if (type.isUnique) {
                                     itemForm.setValue("totalQuantity", undefined);
-                                    itemForm.setValue("isStored", itemForm.getValues("isStored") || false); 
-                                    if (!itemForm.getValues("isStored")) {
+                                    const currentIsStored = itemForm.getValues("isStored");
+                                    itemForm.setValue("isStored", currentIsStored || false);
+                                    if (!currentIsStored) {
                                         itemForm.setValue("shelfNumber", "");
                                     }
-                                } else { 
-                                    itemForm.setValue("itemId", ""); 
-                                    itemForm.setValue("linkedSoldierId", NO_SOLDIER_LINKED_VALUE); 
-                                    itemForm.setValue("isStored", false); 
+                                } else {
+                                    itemForm.setValue("itemId", "");
+                                    itemForm.setValue("linkedSoldierId", NO_SOLDIER_LINKED_VALUE);
+                                    itemForm.setValue("isStored", false);
                                     itemForm.setValue("shelfNumber", "");
                                     if(itemForm.getValues("totalQuantity") === undefined || itemForm.getValues("totalQuantity")! <=0 ) {
                                         itemForm.setValue("totalQuantity",1);
                                     }
                                 }
                             }
-                            itemForm.trigger(); 
+                            itemForm.trigger();
                         }}
                         value={field.value || ""}
                       >
@@ -654,7 +687,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                                         if (checked === false) {
                                             itemForm.setValue("shelfNumber", "");
                                         }
-                                        itemForm.trigger("shelfNumber"); 
+                                        itemForm.trigger("shelfNumber");
                                     }}
                                 />
                             )}
@@ -720,7 +753,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                                 id="totalQuantity"
                                 type="number"
                                 {...field}
-                                value={field.value === undefined ? "" : String(field.value)} 
+                                value={field.value === undefined ? "" : String(field.value)}
                                 onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseInt(e.target.value, 10))}
                             />
                         )}
@@ -823,7 +856,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                 {item.isUniqueItem && item.linkedSoldierId && item.linkedSoldierName ? (
                   <>
                       <p className="text-sm flex items-center">
-                        <User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל: 
+                        <User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל:
                         <Link href={`/soldiers/${item.linkedSoldierId}`} className="font-semibold ms-1 hover:underline">
                             {item.linkedSoldierName}
                         </Link>
@@ -855,6 +888,27 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                 )}
               </CardContent>
               <CardFooter className="flex justify-end gap-2">
+                 {item.isUniqueItem && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon" title="בטל שיוך ואחסן פריט">
+                          <Archive className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>אישור ביטול שיוך ואחסון</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            האם אתה בטוח שברצונך לבטל את שיוך הפריט "{item.itemTypeName} ({item.itemId})" ולהעבירו למצב "מאוחסן"?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>ביטול</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleUnlinkAndStoreItem(item)} className="bg-primary hover:bg-primary/90">אשר</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                  <Button variant="ghost" size="icon" onClick={() => openEditItemDialog(item)}>
                     <Edit3 className="w-4 h-4" />
                  </Button>
@@ -884,5 +938,3 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     </div>
   );
 }
-
-    
