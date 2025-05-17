@@ -29,7 +29,7 @@ import {
     scanArmoryItemImage,
     manageSoldierAssignmentToNonUniqueItem,
     getArmoryItemsBySoldierId,
-    getArmoryItems, // Added this import
+    getArmoryItems, 
     updateArmoryItem,
 } from "@/actions/armoryActions";
 import Link from "next/link";
@@ -246,6 +246,7 @@ export function SoldierDetailClient({
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
         } else if (addOrLinkDialogMode === 'link') {
             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined});
+            linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); // Reset link form too
             setScannedArmoryImagePreview(null);
             setSelectedItemTypeForSoldierPageIsUnique(null);
             setLinkItemSearchTerm('');
@@ -575,6 +576,7 @@ export function SoldierDetailClient({
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
+      // Handle Firestore Timestamp object
       date = (timestampInput as any).toDate();
     } else {
       console.warn("Invalid date input to formatDate (SoldierDetailClient):", timestampInput);
@@ -1069,5 +1071,7 @@ export function SoldierDetailClient({
     </div>
   );
 }
+
+    
 
     

@@ -404,6 +404,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
     } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
+      // Handle Firestore Timestamp object
       date = (timestampInput as any).toDate();
     } else {
       console.warn("Invalid date input to formatDate (AllSoldiersClient):", timestampInput);
@@ -701,5 +702,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
+
+    
 
     

@@ -326,48 +326,9 @@ export async function uploadSoldierDocument(soldierId: string, formData: FormDat
     }
     console.error("--------------------------------------------------");
 
-    let userFriendlyMessage = "העלאת מסמך נכשלה עקב שגיאת שרת. נסה שוב מאוחר יותר.";
-
-    if (error && typeof error === 'object') {
-        const firebaseError = error as any;
-        if (firebaseError.code) { 
-            switch (firebaseError.code) {
-                case 'storage/unauthorized':
-                    userFriendlyMessage = "שגיאת הרשאות בהעלאת הקובץ. אנא בדוק את חוקי האבטחה של Firebase Storage.";
-                    break;
-                case 'storage/canceled':
-                    userFriendlyMessage = "העלאת הקובץ בוטלה.";
-                    break;
-                case 'storage/object-not-found':
-                     userFriendlyMessage = "שגיאה: הנתיב או האובייקט לא נמצא ב-Storage.";
-                     break;
-                case 'storage/quota-exceeded':
-                    userFriendlyMessage = "שגיאה: חריגה ממכסת האחסון בפרויקט.";
-                    break;
-                case 'permission-denied': // Firestore permission error OR Storage permission error not caught by specific codes
-                    userFriendlyMessage = "שגיאת הרשאות בעת ניסיון גישה למשאב. ודא שההרשאות ב-Firestore וב-Storage תקינות.";
-                    break;
-                case 'not-found': // Firestore document not found
-                    userFriendlyMessage = "שגיאה: מסמך החייל לא נמצא במסד הנתונים.";
-                    break;
-                case 'invalid-argument':
-                    userFriendlyMessage = `שגיאת קלט לא חוקי: ${firebaseError.message || 'פרטים לא ידועים'}`;
-                    break;
-                default:
-                    userFriendlyMessage = `שגיאת שרת (${firebaseError.code}). נסה שוב מאוחר יותר.`;
-            }
-        } else if (firebaseError.message && typeof firebaseError.message === 'string' && firebaseError.message.trim() !== "") {
-            userFriendlyMessage = `שגיאה: ${firebaseError.message}`;
-        }
-    } else if (typeof error === 'string' && error.trim() !== "") {
-        userFriendlyMessage = error;
-    }
-    
-    if (typeof userFriendlyMessage !== 'string' || userFriendlyMessage.trim() === "") {
-        userFriendlyMessage = "אירעה שגיאה לא צפויה בהעלאת המסמך.";
-    }
-    
-    throw new Error(userFriendlyMessage);
+    // Throw a very generic error to the client to avoid serialization issues
+    // The detailed error is logged on the server.
+    throw new Error("העלאת מסמך נכשלה. נא לבדוק את הלוגים בצד השרת לפרטים נוספים.");
   }
 }
 
@@ -495,5 +456,7 @@ export async function importSoldiers(soldiersData: SoldierImportData[]): Promise
 
   return { successCount, errorCount, errors, addedSoldiers };
 }
+
+    
 
     
