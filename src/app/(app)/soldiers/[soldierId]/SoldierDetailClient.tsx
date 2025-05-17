@@ -87,6 +87,7 @@ const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRef
           message: "מספר סריאלי הינו שדה חובה עבור פריט ייחודי",
         });
       }
+       // Validation: If not stored, shelf number cannot be entered.
       if (data.isStored === false && data.shelfNumber && data.shelfNumber.trim() !== "") {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -260,31 +261,35 @@ export function SoldierDetailClient({
   }, [currentItemTypeId, addUniqueFormIsStored, allArmoryItemTypes, addUniqueArmoryItemForm]);
 
 
-  useEffect(() => {
+ useEffect(() => {
     if (!isAddOrLinkUniqueArmoryItemDialogOpen) {
+      // Reset create form
       addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""});
-      linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
       setScannedArmoryImagePreview(null);
       setSelectedItemTypeForSoldierPageIsUnique(null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
-      (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create'; 
-      setAddOrLinkDialogMode('create');
-      setLinkItemSearchTerm('');
       if (armoryItemFileInputRef.current) armoryItemFileInputRef.current.value = "";
+      
+      // Reset link form
+      linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
+      setLinkItemSearchTerm('');
+      
+      // Default dialog mode
+      setAddOrLinkDialogMode('create'); 
+      (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create';
     } else {
+        // When dialog opens, or mode changes, reset the other form
         if (addOrLinkDialogMode === 'create') {
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
             setLinkItemSearchTerm('');
-            addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""}); 
         } else if (addOrLinkDialogMode === 'link') {
             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""});
             setScannedArmoryImagePreview(null);
-            setSelectedItemTypeForSoldierPageIsUnique(null); 
-            linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); 
-            setLinkItemSearchTerm('');
+            setSelectedItemTypeForSoldierPageIsUnique(null);
         }
     }
   }, [isAddOrLinkUniqueArmoryItemDialogOpen, addOrLinkDialogMode, addUniqueArmoryItemForm, linkExistingItemForm]);
+
 
   useEffect(() => {
     if(!isAssignNonUniqueDialogOpen) {
@@ -318,11 +323,12 @@ export function SoldierDetailClient({
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || event.target.files.length === 0) {
+        // No file selected or selection cancelled
         setSelectedFile(null);
         setFileNameBase("");
         setFileNameExt("");
         setFileSizeError(null);
-        if (fileInputRef.current) {
+        if (fileInputRef.current) { // Clear the actual file input
           fileInputRef.current.value = "";
         }
         return;
@@ -333,49 +339,48 @@ export function SoldierDetailClient({
     
     setIsUploading(true); // Indicate processing started
     setFileSizeError(null); // Reset previous errors
+    setSelectedFile(null); // Reset selected file while processing new one
+    setFileNameBase("");
+    setFileNameExt("");
+
 
     try {
         // Attempt compression if it's an image and over threshold
         if (fileToProcess.type.startsWith('image/') && fileToProcess.size > IMAGE_COMPRESSION_THRESHOLD_BYTES) {
             toast({ title: "מכווץ תמונה...", description: "הקובץ הנבחר גדול, מתבצע ניסיון לכווץ אותו." });
             const options = {
-                maxSizeMB: 2, // Target size for compression
+                maxSizeMB: 1, // Target size for compression
                 maxWidthOrHeight: 1920,
                 useWebWorker: true,
                 alwaysKeepResolution: false,
             };
             const compressedFile = await imageCompression(fileToProcess, options);
             toast({ title: "כיווץ הושלם", description: `גודל התמונה החדש: ${formatFileSize(compressedFile.size)}` });
-            fileToProcess = compressedFile; // Use the compressed file
+            fileToProcess = compressedFile; 
         }
 
         // Final check against absolute max size
         if (fileToProcess.size > MAX_FILE_SIZE_BYTES) {
             setFileSizeError(`הקובץ עדיין גדול מדי (לאחר ניסיון כיווץ, אם רלוונטי). גודל מקסימלי מותר: ${MAX_FILE_SIZE_MB}MB.`);
-            setSelectedFile(null);
-            setFileNameBase("");
-            setFileNameExt("");
-            if (fileInputRef.current) fileInputRef.current.value = "";
+            // Don't set selectedFile here, let it remain null
+            if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input if error
             return;
         }
         
         // If all checks pass
         const nameParts = originalFileName.split('.');
         const ext = nameParts.length > 1 ? "." + nameParts.pop()!.toLowerCase() : "";
-        // const base = nameParts.join('.'); // Original base name
-
+        
         setSelectedFile(fileToProcess);
-        setFileNameBase(""); // Initialize as empty for user to fill
+        setFileNameBase(""); // Set to empty for user to fill
         setFileNameExt(ext);
-        setFileSizeError(null);
+        setFileSizeError(null); // Ensure error is cleared if previously set
 
     } catch (error: any) {
         console.error("Error during file processing (compression/validation):", error);
         setFileSizeError(error.message || "כיווץ התמונה נכשל או אירעה שגיאה בעיבוד הקובץ.");
-        setSelectedFile(null);
-        setFileNameBase("");
-        setFileNameExt("");
-        if (fileInputRef.current) fileInputRef.current.value = "";
+        // Don't set selectedFile here
+        if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input if error
     } finally {
         setIsUploading(false); // Indicate processing finished
     }
@@ -399,8 +404,9 @@ export function SoldierDetailClient({
     setIsUploading(true);
     const formData = new FormData();
     const finalFileName = fileNameBase.trim() + fileNameExt;
-    const fileWithCustomName = new File([selectedFile], finalFileName, { type: selectedFile.type });
-    formData.append("file", fileWithCustomName);
+    // Use selectedFile (which might be the compressed one)
+    const fileToUpload = new File([selectedFile], finalFileName, { type: selectedFile.type });
+    formData.append("file", fileToUpload);
     formData.append("customFileName", finalFileName); 
 
     try {
@@ -643,7 +649,6 @@ export function SoldierDetailClient({
                 linkedSoldierName: undefined, 
                 linkedSoldierDivisionName: undefined,
                 isStored: true 
-                // shelfNumber is preserved if it existed and item is stored
               } 
             : item
         ));
@@ -742,7 +747,11 @@ export function SoldierDetailClient({
         .filter(item => 
             item.isUniqueItem && 
             !item.linkedSoldierId &&
-            (!linkItemSearchTerm || (item.itemId || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.itemTypeName || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.isStored && item.shelfNumber && item.shelfNumber.toLowerCase().includes(linkItemSearchTerm.toLowerCase())))
+            (!linkItemSearchTerm || 
+                (item.itemId || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || 
+                (item.itemTypeName || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || 
+                (item.isStored && item.shelfNumber && item.shelfNumber.toLowerCase().includes(linkItemSearchTerm.toLowerCase()))
+            )
         )
         .sort((a,b) => (a.itemTypeName || "").localeCompare(b.itemTypeName || "") || (a.itemId || "").localeCompare(b.itemId || ""));
   }, [allExistingArmoryItems, linkItemSearchTerm]);
@@ -1088,6 +1097,7 @@ export function SoldierDetailClient({
                                                                     e.stopPropagation();
                                                                     setLinkItemSearchTerm(e.target.value);
                                                                 }}
+                                                                onClick={(e) => e.stopPropagation()}
                                                                 onKeyDown={(e) => e.stopPropagation()} 
                                                                 className="w-full"
                                                             />
@@ -1305,3 +1315,4 @@ export function SoldierDetailClient({
     </div>
   );
 }
+
