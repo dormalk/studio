@@ -40,6 +40,7 @@ import {
 } from "@/actions/armoryActions";
 import { useToast } from "@/hooks/use-toast";
 import Image from "next/image";
+import Link from "next/link"; // Added Link import
 import {
   AlertDialog,
   AlertDialogAction,
@@ -601,11 +602,14 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                             if (type) { 
                                 if (type.isUnique) { 
                                     itemForm.setValue("totalQuantity", undefined);
-                                    itemForm.setValue("isStored", itemForm.getValues("isStored") || false); // Keep or default
+                                    itemForm.setValue("isStored", itemForm.getValues("isStored") || false); 
+                                    if (!itemForm.getValues("isStored")) {
+                                        itemForm.setValue("shelfNumber", "");
+                                    }
                                 } else { 
                                     itemForm.setValue("itemId", ""); 
                                     itemForm.setValue("linkedSoldierId", NO_SOLDIER_LINKED_VALUE); 
-                                    itemForm.setValue("isStored", false); // Non-unique items are not "stored" in the same way
+                                    itemForm.setValue("isStored", false); 
                                     itemForm.setValue("shelfNumber", "");
                                     if(itemForm.getValues("totalQuantity") === undefined || itemForm.getValues("totalQuantity")! <=0 ) {
                                         itemForm.setValue("totalQuantity",1);
@@ -650,7 +654,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                                         if (checked === false) {
                                             itemForm.setValue("shelfNumber", "");
                                         }
-                                        itemForm.trigger("shelfNumber"); // re-validate shelfNumber if needed
+                                        itemForm.trigger("shelfNumber"); 
                                     }}
                                 />
                             )}
@@ -816,13 +820,14 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                 )}
               </CardHeader>
               <CardContent className="flex-grow space-y-1">
-                {item.isUniqueItem && item.linkedSoldierId ? (
+                {item.isUniqueItem && item.linkedSoldierId && item.linkedSoldierName ? (
                   <>
-                    {item.linkedSoldierName && (
                       <p className="text-sm flex items-center">
-                        <User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל: <span className="font-semibold ms-1">{item.linkedSoldierName}</span>
+                        <User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל: 
+                        <Link href={`/soldiers/${item.linkedSoldierId}`} className="font-semibold ms-1 hover:underline">
+                            {item.linkedSoldierName}
+                        </Link>
                       </p>
-                    )}
                     {item.linkedSoldierDivisionName && (
                       <p className="text-sm flex items-center">
                         <Building className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> פלוגה: <span className="font-semibold ms-1">{item.linkedSoldierDivisionName}</span>
@@ -880,3 +885,4 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   );
 }
 
+    
