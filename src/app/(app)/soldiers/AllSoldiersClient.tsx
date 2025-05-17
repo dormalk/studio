@@ -5,10 +5,10 @@ import type { Soldier, Division, SoldierDocument } from "@/types";
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Edit3, Upload, FileText, Download, Eye, RefreshCw, FileUp, Package, Archive } from "lucide-react";
+import { PlusCircle, Trash2, Edit3, Eye, RefreshCw, FileUp, Package, Archive } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -33,15 +33,11 @@ import {
   addSoldier,
   deleteSoldier,
   updateSoldier,
-  uploadSoldierDocument,
-  deleteSoldierDocument,
   importSoldiers,
   type SoldierImportData,
   type ImportResult
 } from "@/actions/soldierActions";
 import { useToast } from "@/hooks/use-toast";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,7 +49,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Timestamp } from "firebase/firestore";
 import * as XLSX from 'xlsx';
 
 const soldierSchema = z.object({
@@ -77,11 +72,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
   const [isSoldierDialogOpen, setIsSoldierDialogOpen] = useState(false);
   const [editingSoldier, setEditingSoldier] = useState<Soldier | null>(null);
-
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [editableFileName, setEditableFileName] = useState<string>("");
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -112,14 +102,9 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         divisionId: editingSoldier.divisionId,
       });
     } else {
-      // This is for a new soldier dialog
       soldierForm.reset({ id: "", name: "", divisionId: "unassigned" });
     }
-    setSelectedFile(null);
-    setEditableFileName("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
-
-  }, [editingSoldier, soldierForm, isSoldierDialogOpen]); // Added isSoldierDialogOpen to dependencies
+  }, [editingSoldier, soldierForm, isSoldierDialogOpen]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -146,7 +131,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       if (editingSoldier) {
         await updateSoldier(editingSoldier.id, {name: values.name, divisionId: values.divisionId});
          updatedOrNewSoldier = {
-            ...editingSoldier, // Preserve existing fields like documents and armory summaries
+            ...editingSoldier,
             name: values.name,
             divisionId: values.divisionId,
             divisionName,
@@ -155,19 +140,19 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         toast({ title: "הצלחה", description: "פרטי החייל עודכנו." });
       } else {
         const newSoldierServerData = await addSoldier({id: values.id, name: values.name, divisionId: values.divisionId});
-        updatedOrNewSoldier = { // Construct a complete Soldier object
-            ...newSoldierServerData, // This should include id, name, divisionId from server
-            divisionName, // Add the resolved divisionName
-            documents: newSoldierServerData.documents || [], // Ensure documents array exists
-            assignedUniqueArmoryItemsDetails: [], // Initialize armory details for new soldier
-            assignedNonUniqueArmoryItemsSummary: [], // Initialize armory summary for new soldier
+        updatedOrNewSoldier = { 
+            ...newSoldierServerData, 
+            divisionName,
+            documents: newSoldierServerData.documents || [], 
+            assignedUniqueArmoryItemsDetails: [], 
+            assignedNonUniqueArmoryItemsSummary: [],
         };
-        setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
+        setSoldiers(prev => [...prev, updatedOrNewSoldier!].sort((a,b) => a.name.localeCompare(b.name)));
         toast({ title: "הצלחה", description: "חייל נוסף בהצלחה." });
-        setEditingSoldier(updatedOrNewSoldier); 
       }
-      // Do not close dialog here if it's a new soldier, allow document upload
-      // setIsSoldierDialogOpen(false); 
+      setIsSoldierDialogOpen(false); 
+      setEditingSoldier(null);
+      soldierForm.reset({ id: "", name: "", divisionId: "unassigned" });
     } catch (error: any) {
       toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת/עריכת חייל נכשלה." });
     }
@@ -194,82 +179,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     setIsSoldierDialogOpen(true);
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files.length > 0) {
-        const file = event.target.files[0];
-        setSelectedFile(file);
-        setEditableFileName(file.name); // Initialize editable name with original file name
-    } else {
-        setSelectedFile(null);
-        setEditableFileName("");
-    }
-  };
-
-  const handleDocumentUpload = async () => {
-    if (!selectedFile || !editingSoldier) {
-        toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור חייל וקובץ להעלאה."});
-        return;
-    }
-    if (!editableFileName.trim()) {
-        toast({ variant: "destructive", title: "שגיאה", description: "שם הקובץ אינו יכול להיות ריק."});
-        return;
-    }
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", selectedFile);
-    formData.append("customFileName", editableFileName.trim());
-
-    try {
-      const newDocument = await uploadSoldierDocument(editingSoldier.id, formData);
-      // Update the editingSoldier state to include the new document
-      setEditingSoldier(prev => {
-        if (!prev) return null;
-        const updatedDocs = [...(prev.documents || []), newDocument];
-        return { ...prev, documents: updatedDocs };
-      });
-       // Also update the main soldiers list for immediate reflection if needed elsewhere
-      setSoldiers(prevSoldiers => prevSoldiers.map(s =>
-        s.id === editingSoldier.id
-          ? { ...s, documents: [...(s.documents || []), newDocument] }
-          : s
-      ));
-      toast({ title: "הצלחה", description: `מסמך '${newDocument.fileName}' הועלה בהצלחה.` });
-      setSelectedFile(null);
-      setEditableFileName(""); // Reset editable file name
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    } catch (error: any) {
-      console.error("--- CLIENT-SIDE ERROR (handleDocumentUpload AllSoldiersClient) ---");
-      console.error("Error object received by client:", error);
-      if (error && typeof error === 'object' && error.message) {
-        console.error("Client-side error message:", error.message);
-      } else {
-        console.error("Raw error:", error);
-      }
-      console.error("--------------------------------------------------------------------");
-      toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה. בדוק את הלוגים לפרטים נוספים." });
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleDocumentDelete = async (documentId: string, storagePath: string) => {
-    if (!editingSoldier) return;
-    try {
-      await deleteSoldierDocument(editingSoldier.id, documentId, storagePath);
-      const updatedDocs = editingSoldier.documents?.filter(doc => doc.id !== documentId);
-      setEditingSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null);
-      setSoldiers(prevSoldiers => prevSoldiers.map(s =>
-        s.id === editingSoldier.id
-          ? { ...s, documents: updatedDocs }
-          : s
-      ));
-      toast({ title: "הצלחה", description: "המסמך נמחק." });
-    } catch (error: any) {
-      // Log the full error for better debugging on the client-side as well
-      console.error("Client-side document delete error details (AllSoldiersClient):", error);
-      toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
-    }
-  };
 
   const handleImportFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files.length > 0) {
@@ -332,7 +241,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
               <>
                 הכותרות הבאות חסרות או שגויות בשורה הראשונה של הקובץ: {missingHeaders.join(', ')}. 
                 <br />
-                ודא שהכותרות תואמות בדיוק (כולל אותיות גדולות/קטנות ורווחים) ונסה שנית.
+                ודא שהכותרות תואמות בדיוק ונסה שנית.
               </>
             ),
             duration: 15000, 
@@ -354,10 +263,10 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             id: String(rowArray[idIndex] || "").trim(),
             divisionName: String(rowArray[divisionIndex] || "").trim(),
           }))
-          .filter(soldier => soldier.id && soldier.name && soldier.divisionName); // Filter out rows where essential data is missing
+          .filter(soldier => soldier.id && soldier.name && soldier.divisionName);
 
         if (soldiersToImport.length === 0) {
-            toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים תקינות (עם כל השדות הנדרשים) לייבוא בקובץ. ודא שכל שורה מכילה ערכים עבור 'שם החייל', 'מספר אישי', ו'שם הפלוגה'." });
+            toast({ variant: "default", title: "ייבוא", description: "לא נמצאו שורות נתונים תקינות (עם כל השדות הנדרשים) לייבוא בקובץ." });
             setIsImporting(false);
             return;
         }
@@ -365,7 +274,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         const result: ImportResult = await importSoldiers(soldiersToImport);
 
         if (result.successCount > 0) {
-          // Enrich newly added soldiers with default empty armory/document summaries for client-side consistency
           const enrichedAddedSoldiers = result.addedSoldiers.map(s => ({
             ...s,
             documents: s.documents || [],
@@ -404,7 +312,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         }
         
         if (result.successCount === 0 && result.errorCount === 0 && soldiersToImport.length > 0) {
-             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ (ייתכן שכולם כבר קיימים או שהשורות לא הכילו את כל הנתונים הנדרשים)." });
+             toast({ variant: "default", title: "ייבוא", description: "לא נמצאו חיילים חדשים לייבוא בקובץ." });
         }
 
 
@@ -422,42 +330,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     } finally {
       setIsImporting(false);
     }
-  };
-
-  const formatFileSize = (bytes: number, decimals = 2) => {
-    if (!bytes || bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-  }
-
-  const formatDate = (timestampInput: string | Date | Timestamp | undefined): string => {
-    if (!timestampInput) return 'לא זמין';
-    let date: Date;
-
-    if (typeof timestampInput === 'string') {
-      date = new Date(timestampInput);
-    } else if (timestampInput instanceof Date) {
-      date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') {
-      // Handle Firestore Timestamp object
-      date = (timestampInput as any).toDate();
-    } else if (timestampInput && typeof timestampInput === 'object' && 'seconds' in timestampInput && 'nanoseconds' in timestampInput) {
-      // Handle plain object with seconds/nanoseconds (less common but good for robustness)
-      date = new Date((timestampInput as any).seconds * 1000 + (timestampInput as any).nanoseconds / 1000000);
-    }
-     else {
-      console.warn("Invalid date input to formatDate (AllSoldiersClient):", timestampInput);
-      return 'תאריך לא תקין';
-    }
-
-    if (isNaN(date.getTime())) {
-      console.warn("Parsed date is invalid in formatDate (AllSoldiersClient):", date, "from input:", timestampInput);
-      return 'תאריך לא תקין';
-    }
-    return date.toLocaleDateString('he-IL');
   };
 
   return (
@@ -505,7 +377,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                     <DialogFooter>
                         <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
                         <Button type="button" onClick={handleProcessImport} disabled={!importFile || isImporting}>
-                            {isImporting ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
+                            {isImporting ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <FileUp className="h-4 w-4 ms-2" />}
                             {isImporting ? "מעבד..." : "התחל ייבוא"}
                         </Button>
                     </DialogFooter>
@@ -519,11 +391,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
           onOpenChange={(isOpen) => {
             setIsSoldierDialogOpen(isOpen);
             if (!isOpen) {
-              setEditingSoldier(null); // Clear editing state
-              soldierForm.reset({ id: "", name: "", divisionId: "unassigned" }); // Reset form to defaults for new soldier
-              setSelectedFile(null);
-              setEditableFileName("");
-              if (fileInputRef.current) fileInputRef.current.value = "";
+              setEditingSoldier(null); 
+              soldierForm.reset({ id: "", name: "", divisionId: "unassigned" });
             }
           }}
         >
@@ -531,10 +400,10 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             <DialogHeader>
               <DialogTitle>{editingSoldier ? "ערוך פרטי חייל" : "הוסף חייל חדש"}</DialogTitle>
               <DialogDescription>
-                {editingSoldier ? "עדכן את פרטי החייל ונהל את מסמכיו." : "לאחר הוספת החייל, תוכל לנהל את מסמכיו בעריכה."}
+                {editingSoldier ? "עדכן את פרטי החייל." : "הזן את פרטי החייל החדש."}
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={soldierForm.handleSubmit(handleAddOrUpdateSoldier)} className="space-y-4">
+            <form onSubmit={soldierForm.handleSubmit(handleAddOrUpdateSoldier)} className="space-y-4 mt-4">
               <div>
                 <Label htmlFor="soldierId">מ.א.</Label>
                 <Input id="soldierId" {...soldierForm.register("id")} disabled={!!editingSoldier} />
@@ -553,7 +422,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                   render={({ field }) => (
                     <Select 
                         onValueChange={field.onChange} 
-                        value={field.value} // Directly use field.value
+                        value={field.value}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="בחר פלוגה" /> 
@@ -569,106 +438,11 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                 />
                 {soldierForm.formState.errors.divisionId && <p className="text-destructive text-sm">{soldierForm.formState.errors.divisionId.message}</p>}
               </div>
-              <DialogFooter>
-                <Button type="submit">{editingSoldier ? "שמור שינויים בפרטים" : "הוסף חייל והמשך למסמכים"}</Button>
+              <DialogFooter className="pt-4">
+                 <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
+                <Button type="submit">{editingSoldier ? "שמור שינויים" : "הוסף חייל"}</Button>
               </DialogFooter>
             </form>
-
-            {editingSoldier && (
-              <>
-                <Separator className="my-6" />
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium">מסמכים מצורפים</h3>
-                  <div>
-                    <Label htmlFor="soldierDocument">העלאת מסמך חדש</Label>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Input
-                        id="soldierDocument"
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="flex-grow"
-                      />
-                    </div>
-                  </div>
-                  {selectedFile && (
-                    <div className="mt-2">
-                        <Label htmlFor="editableFileName">שם הקובץ (ניתן לעריכה)</Label>
-                        <Input
-                            id="editableFileName"
-                            type="text"
-                            value={editableFileName}
-                            onChange={(e) => setEditableFileName(e.target.value)}
-                            placeholder="הכנס שם קובץ"
-                            className="mt-1"
-                        />
-                    </div>
-                  )}
-                  <Button
-                    type="button"
-                    onClick={handleDocumentUpload}
-                    disabled={!selectedFile || isUploading || !editableFileName.trim()}
-                    className="mt-2"
-                  >
-                    {isUploading ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
-                    העלה מסמך
-                  </Button>
-
-                  {editingSoldier.documents && editingSoldier.documents.length > 0 ? (
-                    <ScrollArea className="h-[200px] border rounded-md p-2 mt-4">
-                      <ul className="space-y-2">
-                        {editingSoldier.documents.map((doc) => (
-                          <li key={doc.id} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded">
-                            <div className="flex items-center gap-2">
-                              <FileText className="h-5 w-5 text-muted-foreground" />
-                              <div>
-                                <a href={doc.downloadURL} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
-                                  {doc.fileName}
-                                </a>
-                                <p className="text-xs text-muted-foreground">
-                                  {formatFileSize(doc.fileSize)} | {doc.fileType} | הועלה: {formatDate(doc.uploadedAt)}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" asChild className="h-7 w-7">
-                                <a href={doc.downloadURL} target="_blank" rel="noopener noreferrer" download={doc.fileName}>
-                                  <Download className="h-4 w-4" />
-                                </a>
-                              </Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7">
-                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>אישור מחיקת מסמך</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      האם אתה בטוח שברצונך למחוק את המסמך "{doc.fileName}"? פעולה זו אינה הפיכה.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>ביטול</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => handleDocumentDelete(doc.id, doc.storagePath)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </ScrollArea>
-                  ) : (
-                    <p className="text-sm text-muted-foreground mt-4">אין מסמכים מצורפים לחייל זה.</p>
-                  )}
-                </div>
-              </>
-            )}
-            <DialogFooter className="mt-6">
-              <DialogClose asChild><Button variant="outline">סגור</Button></DialogClose>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
 
@@ -750,26 +524,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                       </>
                     )}
                   </div>
-                  <Separator className="my-2" />
-                  <div>
-                      <p className="text-xs font-medium mb-0.5">סיכום מסמכים:</p>
-                      {soldier.documents && soldier.documents.length > 0 ? (
-                      <>
-                          <p className="text-xs text-muted-foreground flex items-center">
-                              <FileText className="inline h-3.5 w-3.5 me-1.5" />
-                              סה"כ מסמכים: {soldier.documents.length}
-                          </p>
-                          <ul className="space-y-0.5 ps-6 list-disc text-xs text-muted-foreground">
-                          {soldier.documents.slice(0, 2).map(doc => (
-                              <li key={doc.id} className="truncate">{doc.fileName}</li>
-                          ))}
-                          {soldier.documents.length > 2 && <li>ועוד...</li>}
-                          </ul>
-                      </>
-                      ) : (
-                      <p className="text-xs text-muted-foreground">אין מסמכים מצורפים.</p>
-                      )}
-                  </div>
                 </CardContent>
                 <CardFooter>
                   <Button variant="outline" size="sm" asChild className="w-full">
@@ -808,6 +562,3 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
-
-
-    
