@@ -911,11 +911,11 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                 )}
               </CardContent>
               <CardFooter className="flex justify-end gap-2">
-                 {item.isUniqueItem && (
+                 {item.isUniqueItem && item.linkedSoldierId && (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="icon" title="בטל שיוך ואחסן פריט">
-                          <Archive className="w-4 h-4" />
+                          <Unlink2 className="w-4 h-4" />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
