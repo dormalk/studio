@@ -73,8 +73,6 @@ const armoryItemBaseSchemaOnSoldierPage = z.object({
 });
 
 const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRefine((data, ctx) => {
-  // This validation only applies if creating a new unique item.
-  // Linking existing items has different validation.
   const currentDialogMode = (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__;
   if (currentDialogMode === 'create') {
     const isUnique = (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__;
@@ -162,6 +160,11 @@ export function SoldierDetailClient({
     defaultValues: { existingArmoryItemIdToLink: "" },
   });
 
+  const watchedItemIdToLinkForButton = useWatch({
+    control: linkExistingItemForm.control,
+    name: "existingArmoryItemIdToLink",
+  });
+
   const assignNonUniqueForm = useForm<AssignNonUniqueFormData>({
     resolver: zodResolver(assignNonUniqueSchema),
     defaultValues: { selectedArmoryItemId: "", quantityToAssign: 1}
@@ -238,8 +241,16 @@ export function SoldierDetailClient({
       setAddOrLinkDialogMode('create');
       setLinkItemSearchTerm('');
       if (armoryItemFileInputRef.current) armoryItemFileInputRef.current.value = "";
+    } else {
+        if (addOrLinkDialogMode === 'create') {
+            linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
+        } else if (addOrLinkDialogMode === 'link') {
+            addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined});
+            setScannedArmoryImagePreview(null);
+            setSelectedItemTypeForSoldierPageIsUnique(null);
+        }
     }
-  }, [isAddOrLinkUniqueArmoryItemDialogOpen, addUniqueArmoryItemForm, linkExistingItemForm]);
+  }, [isAddOrLinkUniqueArmoryItemDialogOpen, addOrLinkDialogMode, addUniqueArmoryItemForm, linkExistingItemForm]);
 
   useEffect(() => {
     if(!isAssignNonUniqueDialogOpen) {
@@ -300,12 +311,14 @@ export function SoldierDetailClient({
       setEditableFileName("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
-      console.error("--- CLIENT-SIDE ERROR (handleDocumentUpload) ---");
+      console.error("--- CLIENT-SIDE ERROR (handleDocumentUpload SoldierDetailClient) ---");
       console.error("Error object received by client:", error);
       if (error && typeof error === 'object' && error.message) {
         console.error("Client-side error message:", error.message);
+      } else {
+        console.error("Raw error:", error);
       }
-      console.error("----------------------------------------------");
+      console.error("---------------------------------------------------------------------");
       toast({ variant: "destructive", title: "שגיאת העלאה", description: error.message || "העלאת מסמך נכשלה. בדוק את הלוגים לפרטים נוספים." });
     } finally {
       setIsUploading(false);
@@ -320,7 +333,7 @@ export function SoldierDetailClient({
       setSoldier(prev => prev ? { ...prev, documents: updatedDocs } : null); 
       toast({ title: "הצלחה", description: "המסמך נמחק." });
     } catch (error: any) {
-      console.error("Client-side document delete error details:", error);
+      console.error("Client-side document delete error details (SoldierDetailClient):", error);
       toast({ variant: "destructive", title: "שגיאת מחיקה", description: error.message || "מחיקת מסמך נכשלה." });
     }
   };
@@ -399,6 +412,8 @@ export function SoldierDetailClient({
       return;
     }
     (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = type.isUnique; // Ensure flag is set
+    (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create';
+
 
     const validationResult = armoryItemSchemaOnSoldierPage.safeParse(values);
      if (!validationResult.success) {
@@ -433,7 +448,6 @@ export function SoldierDetailClient({
       };
 
       setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
-      // Also update the allExistingArmoryItems to reflect this new item
       setAllExistingArmoryItems(prev => [...prev, newItemForState]);
 
       toast({ title: "הצלחה", description: `פריט נשקייה (${type.name}) נוסף ושויך לחייל.` });
@@ -846,7 +860,12 @@ export function SoldierDetailClient({
                                             name="existingArmoryItemIdToLink"
                                             control={linkExistingItemForm.control}
                                             render={({ field }) => (
-                                                <Select onValueChange={field.onChange} value={field.value || ""}>
+                                                <Select
+                                                    onValueChange={(value) => {
+                                                        field.onChange(value);
+                                                    }}
+                                                    value={field.value || ""}
+                                                >
                                                     <SelectTrigger id="existingArmoryItemIdToLinkSelect">
                                                         <SelectValue placeholder="בחר פריט לקשירה..." />
                                                     </SelectTrigger>
@@ -859,7 +878,7 @@ export function SoldierDetailClient({
                                                                     e.stopPropagation();
                                                                     setLinkItemSearchTerm(e.target.value);
                                                                 }}
-                                                                onKeyDown={(e) => e.stopPropagation()} // Prevent select closing on Enter/Space
+                                                                onKeyDown={(e) => e.stopPropagation()} 
                                                                 className="w-full"
                                                             />
                                                         </div>
@@ -880,7 +899,7 @@ export function SoldierDetailClient({
                                     </div>
                                     <DialogFooter>
                                         <DialogClose asChild><Button type="button" variant="outline">ביטול</Button></DialogClose>
-                                        <Button type="submit" disabled={!linkExistingItemForm.getValues("existingArmoryItemIdToLink")}>קשר פריט זה</Button>
+                                        <Button type="submit" disabled={!watchedItemIdToLinkForButton}>קשר פריט זה</Button>
                                     </DialogFooter>
                                 </form>
                             )}
@@ -1050,5 +1069,3 @@ export function SoldierDetailClient({
   );
 }
 
-
-    
