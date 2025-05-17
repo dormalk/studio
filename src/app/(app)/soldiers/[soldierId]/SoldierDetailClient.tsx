@@ -28,7 +28,7 @@ import {
     scanArmoryItemImage,
     manageSoldierAssignmentToNonUniqueItem,
     getArmoryItemsBySoldierId,
-    getArmoryItems, // Added import
+    getArmoryItems,
     updateArmoryItem,
 } from "@/actions/armoryActions";
 import Link from "next/link";
@@ -279,7 +279,7 @@ export function SoldierDetailClient({
         } else if (addOrLinkDialogMode === 'link') {
             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""});
             setScannedArmoryImagePreview(null);
-            setSelectedItemTypeForSoldierPageIsUnique(null); // Reset type selection for create mode
+            setSelectedItemTypeForSoldierPageIsUnique(null); 
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); 
             setLinkItemSearchTerm('');
         }
@@ -317,67 +317,67 @@ export function SoldierDetailClient({
   }
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    setFileSizeError(null); // Reset error on new file selection attempt
-
-    if (event.target.files && event.target.files.length > 0) {
-        let fileToProcess = event.target.files[0];
-        const originalFileName = fileToProcess.name;
-        const nameParts = originalFileName.split('.');
-        const ext = nameParts.length > 1 ? "." + nameParts.pop()!.toLowerCase() : ""; // Ensure extension is lowercased
-        const base = nameParts.join('.');
-
-        // Set initial states based on the selected file *before* compression or size checks
-        setSelectedFile(fileToProcess); // Temporarily set, might be overwritten by compressed file or nulled on error
-        setFileNameBase(base); // Initialize with original base name
-        setFileNameExt(ext);
-        setIsUploading(true); // Start "processing" indicator
-
-        try {
-            if (fileToProcess.type.startsWith('image/') && fileToProcess.size > IMAGE_COMPRESSION_THRESHOLD_BYTES) {
-                toast({ title: "מכווץ תמונה...", description: "הקובץ הנבחר גדול, מתבצע ניסיון לכווץ אותו." });
-                const options = {
-                    maxSizeMB: 2,
-                    maxWidthOrHeight: 1920,
-                    useWebWorker: true,
-                    alwaysKeepResolution: false,
-                };
-                const compressedFile = await imageCompression(fileToProcess, options);
-                toast({ title: "כיווץ הושלם", description: `גודל התמונה החדש: ${formatFileSize(compressedFile.size)}` });
-                fileToProcess = compressedFile; // Use the compressed file for further checks
-                // Update selectedFile state with the compressed version
-                setSelectedFile(fileToProcess); 
-            }
-
-            if (fileToProcess.size > MAX_FILE_SIZE_BYTES) {
-                setFileSizeError(`הקובץ עדיין גדול מדי (מעל ${MAX_FILE_SIZE_MB}MB). גודל מקסימלי מותר: ${MAX_FILE_SIZE_MB}MB.`);
-                setSelectedFile(null); // Clear selected file due to error
-                setFileNameBase("");   // Clear base name
-                setFileNameExt("");    // Clear extension
-                if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input
-                setIsUploading(false);
-                return;
-            }
-            // If no errors, selectedFile is already fileToProcess (original or compressed)
-            // fileNameBase and fileNameExt are set from the original file.
-            // User can now edit fileNameBase.
-            setFileSizeError(null); // Ensure no error is shown if processing was successful
-        } catch (error: any) {
-            console.error("Error during file processing (compression/validation):", error);
-            setFileSizeError(error.message || "כיווץ התמונה נכשל או אירעה שגיאה בעיבוד הקובץ.");
-            setSelectedFile(null);
-            setFileNameBase("");
-            setFileNameExt("");
-            if (fileInputRef.current) fileInputRef.current.value = "";
-        } finally {
-            setIsUploading(false); // Stop "processing" indicator
-        }
-    } else {
-        // No file selected, or selection was cancelled. Reset all relevant states.
+    if (!event.target.files || event.target.files.length === 0) {
         setSelectedFile(null);
         setFileNameBase("");
         setFileNameExt("");
         setFileSizeError(null);
-        // No need to clear fileInputRef.current.value here as the browser handles it.
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+    }
+
+    let fileToProcess = event.target.files[0];
+    const originalFileName = fileToProcess.name;
+    
+    setIsUploading(true); // Indicate processing started
+    setFileSizeError(null); // Reset previous errors
+
+    try {
+        // Attempt compression if it's an image and over threshold
+        if (fileToProcess.type.startsWith('image/') && fileToProcess.size > IMAGE_COMPRESSION_THRESHOLD_BYTES) {
+            toast({ title: "מכווץ תמונה...", description: "הקובץ הנבחר גדול, מתבצע ניסיון לכווץ אותו." });
+            const options = {
+                maxSizeMB: 2, // Target size for compression
+                maxWidthOrHeight: 1920,
+                useWebWorker: true,
+                alwaysKeepResolution: false,
+            };
+            const compressedFile = await imageCompression(fileToProcess, options);
+            toast({ title: "כיווץ הושלם", description: `גודל התמונה החדש: ${formatFileSize(compressedFile.size)}` });
+            fileToProcess = compressedFile; // Use the compressed file
+        }
+
+        // Final check against absolute max size
+        if (fileToProcess.size > MAX_FILE_SIZE_BYTES) {
+            setFileSizeError(`הקובץ עדיין גדול מדי (לאחר ניסיון כיווץ, אם רלוונטי). גודל מקסימלי מותר: ${MAX_FILE_SIZE_MB}MB.`);
+            setSelectedFile(null);
+            setFileNameBase("");
+            setFileNameExt("");
+            if (fileInputRef.current) fileInputRef.current.value = "";
+            return;
+        }
+        
+        // If all checks pass
+        const nameParts = originalFileName.split('.');
+        const ext = nameParts.length > 1 ? "." + nameParts.pop()!.toLowerCase() : "";
+        // const base = nameParts.join('.'); // Original base name
+
+        setSelectedFile(fileToProcess);
+        setFileNameBase(""); // Initialize as empty for user to fill
+        setFileNameExt(ext);
+        setFileSizeError(null);
+
+    } catch (error: any) {
+        console.error("Error during file processing (compression/validation):", error);
+        setFileSizeError(error.message || "כיווץ התמונה נכשל או אירעה שגיאה בעיבוד הקובץ.");
+        setSelectedFile(null);
+        setFileNameBase("");
+        setFileNameExt("");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    } finally {
+        setIsUploading(false); // Indicate processing finished
     }
 };
 
@@ -399,12 +399,8 @@ export function SoldierDetailClient({
     setIsUploading(true);
     const formData = new FormData();
     const finalFileName = fileNameBase.trim() + fileNameExt;
-    // Create a new File object with the custom name but original type and content
-    // Use selectedFile.name as a fallback if fileNameExt is somehow empty, though unlikely
     const fileWithCustomName = new File([selectedFile], finalFileName, { type: selectedFile.type });
     formData.append("file", fileWithCustomName);
-    // The server action now uses file.name from the appended file, so customFileName might be redundant,
-    // but keeping it for clarity in the action or future needs.
     formData.append("customFileName", finalFileName); 
 
     try {
@@ -415,7 +411,6 @@ export function SoldierDetailClient({
         return { ...prev, documents: updatedDocs };
       });
       toast({ title: "הצלחה", description: `מסמך '${newDocument.fileName}' הועלה בהצלחה.` });
-      // Reset file input related states after successful upload
       setSelectedFile(null);
       setFileNameBase("");
       setFileNameExt("");
@@ -541,7 +536,7 @@ export function SoldierDetailClient({
         itemTypeId: validatedValues.itemTypeId,
         isUniqueItem: true, 
         itemId: validatedValues.itemId,
-        linkedSoldierId: soldier.id, // Automatically linked to the current soldier
+        linkedSoldierId: soldier.id, 
         imageUrl: validatedValues.photoDataUri || undefined,
         isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : true,
         shelfNumber: (validatedValues.isStored && validatedValues.shelfNumber && validatedValues.shelfNumber.trim() !== "") ? validatedValues.shelfNumber.trim() : undefined,
@@ -635,6 +630,7 @@ export function SoldierDetailClient({
         await updateArmoryItem(armoryItemId, { 
             linkedSoldierId: null, 
             isStored: true,      
+            shelfNumber: itemToUnlink.shelfNumber // Keep shelf number if it was stored
         });
 
         setArmoryItemsForSoldier(prev => prev.filter(item => item.id !== armoryItemId));
@@ -647,6 +643,7 @@ export function SoldierDetailClient({
                 linkedSoldierName: undefined, 
                 linkedSoldierDivisionName: undefined,
                 isStored: true 
+                // shelfNumber is preserved if it existed and item is stored
               } 
             : item
         ));
@@ -1308,5 +1305,3 @@ export function SoldierDetailClient({
     </div>
   );
 }
-
-    
