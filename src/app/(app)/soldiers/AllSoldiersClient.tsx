@@ -67,6 +67,8 @@ interface AllSoldiersClientProps {
   initialDivisions: Division[];
 }
 
+const ITEMS_PER_PAGE = 8;
+
 export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSoldiersClientProps) {
   const [soldiers, setSoldiers] = useState<Soldier[]>(initialSoldiers);
   const [divisions, setDivisions] = useState<Division[]>(initialDivisions);
@@ -85,6 +87,8 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   const [importFile, setImportFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const importFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [currentPage, setCurrentPage] = useState(1);
 
 
   const soldierForm = useForm<z.infer<typeof soldierSchema>>({
@@ -116,12 +120,22 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
   }, [editingSoldier, soldierForm, isSoldierDialogOpen]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
   const filteredSoldiers = useMemo(() => {
     return soldiers.filter(soldier =>
         soldier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         soldier.id.includes(searchTerm)
     ).sort((a,b) => a.name.localeCompare(b.name));
   }, [soldiers, searchTerm]);
+
+  const totalPages = Math.ceil(filteredSoldiers.length / ITEMS_PER_PAGE);
+  const paginatedSoldiers = filteredSoldiers.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   const handleAddOrUpdateSoldier = async (values: z.infer<typeof soldierSchema>) => {
     try {
@@ -637,110 +651,132 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         onChange={(e) => setSearchTerm(e.target.value)}
         className="max-w-sm"
       />
-
+    
       {filteredSoldiers.length === 0 ? (
         <p className="text-center text-muted-foreground py-8">
           {searchTerm ? "לא נמצאו חיילים התואמים לחיפוש." : "אין חיילים להצגה."}
         </p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filteredSoldiers.map(soldier => (
-            <Card key={soldier.id} className="flex flex-col">
-              <CardHeader>
-                  <div className="flex items-center justify-between">
-                      <CardTitle>{soldier.name}</CardTitle>
-                      <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => openEditSoldierDialog(soldier)}><Edit3 className="w-4 h-4"/></Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="icon"><Trash2 className="w-4 h-4 text-destructive"/></Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>ביטול</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                      </div>
-                  </div>
-                  <CardDescription>מ.א. {soldier.id}</CardDescription>
-                  <CardDescription>פלוגה: {soldier.divisionName || "לא משויך"}</CardDescription>
-              </CardHeader>
-              <CardContent className="flex-grow space-y-3">
-                <div>
-                  <p className="text-xs font-medium mb-0.5">סיכום מחסן:</p>
-                  {(!soldier.assignedUniqueArmoryItemsDetails || soldier.assignedUniqueArmoryItemsDetails.length === 0) && 
-                   (!soldier.assignedNonUniqueArmoryItemsSummary || soldier.assignedNonUniqueArmoryItemsSummary.length === 0) ? (
-                    <p className="text-xs text-muted-foreground">אין פריטי מחסן משויכים.</p>
-                  ) : (
-                    <>
-                      {(soldier.assignedUniqueArmoryItemsDetails && soldier.assignedUniqueArmoryItemsDetails.length > 0) && (
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          <p className="flex items-center font-medium"><Package className="inline h-3.5 w-3.5 me-1.5" />פריטים ייחודיים ({soldier.assignedUniqueArmoryItemsDetails.length}):</p>
-                          <ul className="list-disc ps-6 space-y-0.5">
-                            {soldier.assignedUniqueArmoryItemsDetails.slice(0, 2).map(detail => (
-                              <li key={detail.id}>{detail.itemTypeName}: {detail.itemId}</li>
-                            ))}
-                            {soldier.assignedUniqueArmoryItemsDetails.length > 2 && (
-                              <li>ועוד {soldier.assignedUniqueArmoryItemsDetails.length - 2}...</li>
-                            )}
-                          </ul>
+        <>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {paginatedSoldiers.map(soldier => (
+              <Card key={soldier.id} className="flex flex-col">
+                <CardHeader>
+                    <div className="flex items-center justify-between">
+                        <CardTitle>{soldier.name}</CardTitle>
+                        <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEditSoldierDialog(soldier)}><Edit3 className="w-4 h-4"/></Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon"><Trash2 className="w-4 h-4 text-destructive"/></Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    האם אתה בטוח שברצונך למחוק את החייל "{soldier.name}"?
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>ביטול</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleDeleteSoldier(soldier.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                         </div>
-                      )}
-                      {soldier.assignedNonUniqueArmoryItemsSummary && soldier.assignedNonUniqueArmoryItemsSummary.length > 0 && (
-                        <div className="text-xs text-muted-foreground mt-1">
-                          <p className="flex items-center font-medium"><Archive className="inline h-3.5 w-3.5 me-1.5" />פריטים כמותיים:</p>
-                          <ul className="list-disc ps-6 space-y-0.5">
-                            {soldier.assignedNonUniqueArmoryItemsSummary.map(summary => (
-                              <li key={summary.itemTypeName}>{summary.itemTypeName}: {summary.quantity}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-                <Separator className="my-2" />
-                <div>
-                    <p className="text-xs font-medium mb-0.5">סיכום מסמכים:</p>
-                    {soldier.documents && soldier.documents.length > 0 ? (
-                    <>
-                        <p className="text-xs text-muted-foreground flex items-center">
-                            <FileText className="inline h-3.5 w-3.5 me-1.5" />
-                            סה"כ מסמכים: {soldier.documents.length}
-                        </p>
-                        <ul className="space-y-0.5 ps-6 list-disc text-xs text-muted-foreground">
-                        {soldier.documents.slice(0, 2).map(doc => (
-                            <li key={doc.id} className="truncate">{doc.fileName}</li>
-                        ))}
-                        {soldier.documents.length > 2 && <li>ועוד...</li>}
-                        </ul>
-                    </>
+                    </div>
+                    <CardDescription>מ.א. {soldier.id}</CardDescription>
+                    <CardDescription>פלוגה: {soldier.divisionName || "לא משויך"}</CardDescription>
+                </CardHeader>
+                <CardContent className="flex-grow space-y-3">
+                  <div>
+                    <p className="text-xs font-medium mb-0.5">סיכום מחסן:</p>
+                    {(!soldier.assignedUniqueArmoryItemsDetails || soldier.assignedUniqueArmoryItemsDetails.length === 0) && 
+                     (!soldier.assignedNonUniqueArmoryItemsSummary || soldier.assignedNonUniqueArmoryItemsSummary.length === 0) ? (
+                      <p className="text-xs text-muted-foreground">אין פריטי מחסן משויכים.</p>
                     ) : (
-                    <p className="text-xs text-muted-foreground">אין מסמכים מצורפים.</p>
+                      <>
+                        {(soldier.assignedUniqueArmoryItemsDetails && soldier.assignedUniqueArmoryItemsDetails.length > 0) && (
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            <p className="flex items-center font-medium"><Package className="inline h-3.5 w-3.5 me-1.5" />פריטים ייחודיים ({soldier.assignedUniqueArmoryItemsDetails.length}):</p>
+                            <ul className="list-disc ps-6 space-y-0.5">
+                              {soldier.assignedUniqueArmoryItemsDetails.slice(0, 2).map(detail => (
+                                <li key={detail.id}>{detail.itemTypeName}: {detail.itemId}</li>
+                              ))}
+                              {soldier.assignedUniqueArmoryItemsDetails.length > 2 && (
+                                <li>ועוד {soldier.assignedUniqueArmoryItemsDetails.length - 2}...</li>
+                              )}
+                            </ul>
+                          </div>
+                        )}
+                        {soldier.assignedNonUniqueArmoryItemsSummary && soldier.assignedNonUniqueArmoryItemsSummary.length > 0 && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            <p className="flex items-center font-medium"><Archive className="inline h-3.5 w-3.5 me-1.5" />פריטים כמותיים:</p>
+                            <ul className="list-disc ps-6 space-y-0.5">
+                              {soldier.assignedNonUniqueArmoryItemsSummary.map(summary => (
+                                <li key={summary.itemTypeName}>{summary.itemTypeName}: {summary.quantity}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
                     )}
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button variant="outline" size="sm" asChild className="w-full">
-                  <Link href={`/soldiers/${soldier.id}`}>
-                    <Eye className="ms-2 h-3.5 w-3.5" />
-                    הצג פרטים
-                  </Link>
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
-        </div>
+                  </div>
+                  <Separator className="my-2" />
+                  <div>
+                      <p className="text-xs font-medium mb-0.5">סיכום מסמכים:</p>
+                      {soldier.documents && soldier.documents.length > 0 ? (
+                      <>
+                          <p className="text-xs text-muted-foreground flex items-center">
+                              <FileText className="inline h-3.5 w-3.5 me-1.5" />
+                              סה"כ מסמכים: {soldier.documents.length}
+                          </p>
+                          <ul className="space-y-0.5 ps-6 list-disc text-xs text-muted-foreground">
+                          {soldier.documents.slice(0, 2).map(doc => (
+                              <li key={doc.id} className="truncate">{doc.fileName}</li>
+                          ))}
+                          {soldier.documents.length > 2 && <li>ועוד...</li>}
+                          </ul>
+                      </>
+                      ) : (
+                      <p className="text-xs text-muted-foreground">אין מסמכים מצורפים.</p>
+                      )}
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button variant="outline" size="sm" asChild className="w-full">
+                    <Link href={`/soldiers/${soldier.id}`}>
+                      <Eye className="ms-2 h-3.5 w-3.5" />
+                      הצג פרטים
+                    </Link>
+                  </Button>
+                </CardFooter>
+              </Card>
+            ))}
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-6">
+              <Button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                variant="outline"
+              >
+                הקודם
+              </Button>
+              <span className="text-sm">
+                עמוד {currentPage} מתוך {totalPages}
+              </span>
+              <Button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                variant="outline"
+              >
+                הבא
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 }
-

@@ -130,6 +130,7 @@ interface ArmoryManagementClientProps {
 }
 
 const NO_SOLDIER_LINKED_VALUE = "__NO_SOLDIER_LINKED__";
+const ITEMS_PER_PAGE = 8;
 
 export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTypes, initialSoldiers }: ArmoryManagementClientProps) {
   const [armoryItems, setArmoryItems] = useState<ArmoryItem[]>(initialArmoryItems);
@@ -152,6 +153,9 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
   const [isItemTypeDialogOpen, setIsItemTypeDialogOpen] = useState(false);
   const [editingItemType, setEditingItemType] = useState<ArmoryItemType | null>(null);
+
+  const [currentPageUnique, setCurrentPageUnique] = useState(1);
+  const [currentPageNonUnique, setCurrentPageNonUnique] = useState(1);
 
   const itemForm = useForm<ArmoryItemFormData>({
     resolver: zodResolver(armoryItemSchema),
@@ -177,6 +181,11 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   useEffect(() => {
     setSoldiers(initialSoldiers.sort((a,b) => a.name.localeCompare(b.name)));
   }, [initialSoldiers]);
+
+  useEffect(() => {
+    setCurrentPageUnique(1);
+    setCurrentPageNonUnique(1);
+  }, [searchTerm, filterItemTypeId]);
 
   const currentItemTypeId = itemForm.watch("itemTypeId");
   useEffect(() => {
@@ -280,6 +289,20 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
             soldier.id.includes(soldierFilterInDialog)
     );
   }, [soldiers, soldierFilterInDialog]);
+
+  // Pagination logic for Unique Items
+  const totalPagesUnique = Math.ceil(uniqueFilteredItems.length / ITEMS_PER_PAGE);
+  const paginatedUniqueItems = uniqueFilteredItems.slice(
+    (currentPageUnique - 1) * ITEMS_PER_PAGE,
+    currentPageUnique * ITEMS_PER_PAGE
+  );
+
+  // Pagination logic for Non-Unique Items
+  const totalPagesNonUnique = Math.ceil(nonUniqueFilteredItems.length / ITEMS_PER_PAGE);
+  const paginatedNonUniqueItems = nonUniqueFilteredItems.slice(
+    (currentPageNonUnique - 1) * ITEMS_PER_PAGE,
+    currentPageNonUnique * ITEMS_PER_PAGE
+  );
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -981,9 +1004,32 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
               {uniqueFilteredItems.length === 0 ? (
                 <p className="text-center text-muted-foreground py-4">אין פריטים ייחודיים התואמים לחיפוש או לסינון.</p>
               ) : (
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pt-4">
-                  {uniqueFilteredItems.map((item) => renderArmoryItemCard(item))}
-                </div>
+                <>
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pt-4">
+                    {paginatedUniqueItems.map((item) => renderArmoryItemCard(item))}
+                  </div>
+                  {totalPagesUnique > 1 && (
+                    <div className="flex items-center justify-center gap-2 mt-6">
+                      <Button
+                        onClick={() => setCurrentPageUnique(prev => Math.max(1, prev - 1))}
+                        disabled={currentPageUnique === 1}
+                        variant="outline"
+                      >
+                        הקודם
+                      </Button>
+                      <span className="text-sm">
+                        עמוד {currentPageUnique} מתוך {totalPagesUnique}
+                      </span>
+                      <Button
+                        onClick={() => setCurrentPageUnique(prev => Math.min(totalPagesUnique, prev + 1))}
+                        disabled={currentPageUnique === totalPagesUnique}
+                        variant="outline"
+                      >
+                        הבא
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </AccordionContent>
           </AccordionItem>
@@ -998,9 +1044,32 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
               {nonUniqueFilteredItems.length === 0 ? (
                 <p className="text-center text-muted-foreground py-4">אין פריטים כמותיים התואמים לחיפוש או לסינון.</p>
               ) : (
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pt-4">
-                  {nonUniqueFilteredItems.map((item) => renderArmoryItemCard(item))}
-                </div>
+                <>
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pt-4">
+                    {paginatedNonUniqueItems.map((item) => renderArmoryItemCard(item))}
+                  </div>
+                  {totalPagesNonUnique > 1 && (
+                     <div className="flex items-center justify-center gap-2 mt-6">
+                      <Button
+                        onClick={() => setCurrentPageNonUnique(prev => Math.max(1, prev - 1))}
+                        disabled={currentPageNonUnique === 1}
+                        variant="outline"
+                      >
+                        הקודם
+                      </Button>
+                      <span className="text-sm">
+                        עמוד {currentPageNonUnique} מתוך {totalPagesNonUnique}
+                      </span>
+                      <Button
+                        onClick={() => setCurrentPageNonUnique(prev => Math.min(totalPagesNonUnique, prev + 1))}
+                        disabled={currentPageNonUnique === totalPagesNonUnique}
+                        variant="outline"
+                      >
+                        הבא
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </AccordionContent>
           </AccordionItem>
@@ -1009,5 +1078,3 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     </div>
   );
 }
-
-    
