@@ -54,6 +54,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import * as XLSX from 'xlsx';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 
 const armoryItemBaseSchema = z.object({
@@ -84,7 +90,6 @@ const armoryItemSchema = armoryItemBaseSchema.superRefine((data, ctx) => {
             message: "לא ניתן להזין מספר מדף אם הפריט אינו מאוחסן",
         });
     }
-    // New validation: If unique item is not stored (issued), it must be linked to a soldier.
     if ((data.isStored === false || data.isStored === undefined) && 
         (!data.linkedSoldierId || data.linkedSoldierId === NO_SOLDIER_LINKED_VALUE)) {
       ctx.addIssue({
@@ -258,6 +263,14 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     }
     return itemsToFilter;
   }, [armoryItems, searchTerm, filterItemTypeId]);
+  
+  const uniqueFilteredItems = useMemo(() => {
+    return filteredArmoryItems.filter(item => item.isUniqueItem);
+  }, [filteredArmoryItems]);
+
+  const nonUniqueFilteredItems = useMemo(() => {
+      return filteredArmoryItems.filter(item => !item.isUniqueItem);
+  }, [filteredArmoryItems]);
 
   const filteredSoldiersForDialog = useMemo(() => {
     if (!soldierFilterInDialog) return soldiers;
@@ -481,17 +494,17 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "פריטי נשקייה");
+    XLSX.utils.book_append_sheet(workbook, worksheet, "פריטי מחסן");
     XLSX.writeFile(workbook, "armory_items_export.xlsx");
-    toast({ title: "הצלחה", description: "נתוני הנשקייה יוצאו ל-Excel."});
+    toast({ title: "הצלחה", description: "נתוני המחסן יוצאו ל-Excel."});
   };
 
   const handleUnlinkAndStoreItem = async (itemToUpdate: ArmoryItem) => {
     if (!itemToUpdate.isUniqueItem) return;
     try {
       await updateArmoryItem(itemToUpdate.id, {
-        linkedSoldierId: null, // Unassign
-        isStored: true,      // Mark as stored
+        linkedSoldierId: null, 
+        isStored: true,      
       });
       setArmoryItems(prevItems =>
         prevItems.map(item =>
@@ -512,11 +525,129 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     }
   };
 
+  const renderArmoryItemCard = (item: ArmoryItem) => {
+    const totalAssigned = !item.isUniqueItem && item.assignments
+        ? item.assignments.reduce((sum, asgn) => sum + asgn.quantity, 0)
+        : 0;
+    return (
+        <Card key={item.id} className="flex flex-col">
+            <CardHeader>
+            {item.imageUrl ? (
+                <div className="relative h-40 w-full mb-2 rounded-md overflow-hidden">
+                <Image src={item.imageUrl} alt={item.itemTypeName || "Armory Item"} layout="fill" objectFit="cover" data-ai-hint="equipment military"/>
+                </div>
+            ) : (
+                <div className="flex items-center justify-center h-40 w-full mb-2 rounded-md bg-muted">
+                <PackageSearch className="w-16 h-16 text-muted-foreground" />
+                </div>
+            )}
+            <CardTitle>{item.itemTypeName || "פריט לא מסווג"}</CardTitle>
+            {item.isUniqueItem ? (
+                <>
+                    <CardDescription>מספר סריאלי: <span className="font-semibold">{item.itemId || "N/A"}</span></CardDescription>
+                    <CardDescription>סטטוס: <span className="font-semibold">{item.isStored ? "מאוחסן" : "מונפק"}</span></CardDescription>
+                        {item.isStored && item.shelfNumber && <CardDescription className="flex items-center"><MapPin className="w-3.5 h-3.5 me-1 text-muted-foreground"/>מדף: <span className="font-semibold ms-1">{item.shelfNumber}</span></CardDescription>}
+                </>
+            ) : (
+                <CardDescription>
+                    סה"כ במלאי: <span className="font-semibold">{item.totalQuantity ?? 0}</span>
+                    {item.assignments && item.assignments.length > 0 && (
+                            <span className="text-xs block text-muted-foreground"> (מוקצה: {totalAssigned} מתוך {item.totalQuantity ?? 0})</span>
+                    )}
+                        {item.assignments && item.assignments.length === 0 && (
+                            <span className="text-xs block text-muted-foreground"> (מוקצה: 0 מתוך {item.totalQuantity ?? 0})</span>
+                    )}
+                </CardDescription>
+            )}
+            </CardHeader>
+            <CardContent className="flex-grow space-y-1">
+            {item.isUniqueItem && item.linkedSoldierId && item.linkedSoldierName ? (
+                <>
+                    <p className="text-sm flex items-center">
+                    <User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל:
+                    <Link href={`/soldiers/${item.linkedSoldierId}`} className="font-semibold ms-1 hover:underline">
+                        {item.linkedSoldierName}
+                    </Link>
+                    </p>
+                {item.linkedSoldierDivisionName && (
+                    <p className="text-sm flex items-center">
+                    <Building className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> פלוגה: <span className="font-semibold ms-1">{item.linkedSoldierDivisionName}</span>
+                    </p>
+                )}
+                </>
+            ) : item.isUniqueItem ? (
+                <p className="text-sm text-muted-foreground flex items-center"><User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" />לא משויך לחייל</p>
+            ) : item.assignments && item.assignments.length > 0 ? (
+                <div className="text-sm">
+                <p className="font-medium flex items-center"><Users2 className="w-3.5 h-3.5 me-1.5 text-muted-foreground"/>הקצאות לחיילים:</p>
+                <ScrollArea className="h-[60px] pr-2">
+                    <ul className="list-disc ps-5 text-xs space-y-0.5">
+                        {item.assignments.map(asgn => (
+                            <li key={asgn.soldierId}>
+                                {asgn.soldierName || `חייל (${asgn.soldierId.substring(0,4)}...)`}: {asgn.quantity} יח'
+                                {asgn.soldierDivisionName && <span className="text-muted-foreground"> ({asgn.soldierDivisionName})</span>}
+                            </li>
+                        ))}
+                    </ul>
+                </ScrollArea>
+                </div>
+            ) : (
+                <p className="text-sm text-muted-foreground flex items-center"><Archive className="w-3.5 h-3.5 me-1.5 text-muted-foreground"/>פריט כמותי, אין הקצאות פעילות.</p>
+            )}
+            </CardContent>
+            <CardFooter className="flex justify-end gap-2">
+                {item.isUniqueItem && item.linkedSoldierId && (
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="icon" title="בטל שיוך ואחסן פריט">
+                        <Unlink2 className="w-4 h-4" />
+                    </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>אישור ביטול שיוך ואחסון</AlertDialogTitle>
+                        <AlertDialogDescription>
+                        האם אתה בטוח שברצונך לבטל את שיוך הפריט "{item.itemTypeName} ({item.itemId})" ולהעבירו למצב "מאוחסן"?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>ביטול</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleUnlinkAndStoreItem(item)} className="bg-primary hover:bg-primary/90">אשר</AlertDialogAction>
+                    </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+                )}
+                <Button variant="ghost" size="icon" onClick={() => openEditItemDialog(item)}>
+                <Edit3 className="w-4 h-4" />
+                </Button>
+                <AlertDialog>
+                <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="icon"><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                    <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        האם אתה בטוח שברצונך למחוק את הפריט מסוג "{item.itemTypeName || 'לא ידוע'}"
+                        {item.isUniqueItem && item.itemId ? ` (סריאלי: ${item.itemId})` : (!item.isUniqueItem ? ` (סה"כ: ${item.totalQuantity})`: '')}?
+                    </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                    <AlertDialogCancel>ביטול</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => handleDeleteItem(item.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+            </CardFooter>
+        </Card>
+    );
+  }
+
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-        <h1 className="text-3xl font-bold">ניהול נשקייה</h1>
+        <h1 className="text-3xl font-bold">ניהול מחסן</h1>
         <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
           <Button variant="outline" onClick={handleExportToExcel} disabled={filteredArmoryItems.length === 0}>
             <FileSpreadsheet className="ms-2 h-4 w-4" /> ייצא ל-Excel
@@ -701,7 +832,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                                         if (checked === false) {
                                             itemForm.setValue("shelfNumber", "");
                                         }
-                                        itemForm.trigger(["shelfNumber", "linkedSoldierId"]); // Trigger validation for linkedSoldierId too
+                                        itemForm.trigger(["shelfNumber", "linkedSoldierId"]); 
                                     }}
                                 />
                             )}
@@ -726,7 +857,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                           <Select 
                             onValueChange={(value) => {
                                 field.onChange(value);
-                                itemForm.trigger(["isStored"]); // Trigger validation for isStored when soldier link changes
+                                itemForm.trigger(["isStored"]); 
                             }} 
                             value={field.value || NO_SOLDIER_LINKED_VALUE}
                           >
@@ -839,126 +970,44 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       {filteredArmoryItems.length === 0 ? (
         <p className="text-center text-muted-foreground py-8">לא נמצאו פריטים התואמים לחיפוש או לסינון.</p>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filteredArmoryItems.map((item) => {
-            const totalAssigned = !item.isUniqueItem && item.assignments
-                ? item.assignments.reduce((sum, asgn) => sum + asgn.quantity, 0)
-                : 0;
-            return (
-            <Card key={item.id} className="flex flex-col">
-              <CardHeader>
-                {item.imageUrl ? (
-                  <div className="relative h-40 w-full mb-2 rounded-md overflow-hidden">
-                    <Image src={item.imageUrl} alt={item.itemTypeName || "Armory Item"} layout="fill" objectFit="cover" data-ai-hint="equipment military"/>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center h-40 w-full mb-2 rounded-md bg-muted">
-                    <PackageSearch className="w-16 h-16 text-muted-foreground" />
-                  </div>
-                )}
-                <CardTitle>{item.itemTypeName || "פריט לא מסווג"}</CardTitle>
-                {item.isUniqueItem ? (
-                    <>
-                        <CardDescription>מספר סריאלי: <span className="font-semibold">{item.itemId || "N/A"}</span></CardDescription>
-                        <CardDescription>סטטוס: <span className="font-semibold">{item.isStored ? "מאוחסן" : "מונפק"}</span></CardDescription>
-                         {item.isStored && item.shelfNumber && <CardDescription className="flex items-center"><MapPin className="w-3.5 h-3.5 me-1 text-muted-foreground"/>מדף: <span className="font-semibold ms-1">{item.shelfNumber}</span></CardDescription>}
-                    </>
-                ) : (
-                    <CardDescription>
-                        סה"כ במלאי: <span className="font-semibold">{item.totalQuantity ?? 0}</span>
-                        {item.assignments && item.assignments.length > 0 && (
-                             <span className="text-xs block text-muted-foreground"> (מוקצה: {totalAssigned} מתוך {item.totalQuantity ?? 0})</span>
-                        )}
-                         {item.assignments && item.assignments.length === 0 && (
-                             <span className="text-xs block text-muted-foreground"> (מוקצה: 0 מתוך {item.totalQuantity ?? 0})</span>
-                        )}
-                    </CardDescription>
-                )}
-              </CardHeader>
-              <CardContent className="flex-grow space-y-1">
-                {item.isUniqueItem && item.linkedSoldierId && item.linkedSoldierName ? (
-                  <>
-                      <p className="text-sm flex items-center">
-                        <User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> שייך ל:
-                        <Link href={`/soldiers/${item.linkedSoldierId}`} className="font-semibold ms-1 hover:underline">
-                            {item.linkedSoldierName}
-                        </Link>
-                      </p>
-                    {item.linkedSoldierDivisionName && (
-                      <p className="text-sm flex items-center">
-                        <Building className="w-3.5 h-3.5 me-1.5 text-muted-foreground" /> פלוגה: <span className="font-semibold ms-1">{item.linkedSoldierDivisionName}</span>
-                      </p>
-                    )}
-                  </>
-                ) : item.isUniqueItem ? (
-                  <p className="text-sm text-muted-foreground flex items-center"><User className="w-3.5 h-3.5 me-1.5 text-muted-foreground" />לא משויך לחייל</p>
-                ) : item.assignments && item.assignments.length > 0 ? (
-                  <div className="text-sm">
-                    <p className="font-medium flex items-center"><Users2 className="w-3.5 h-3.5 me-1.5 text-muted-foreground"/>הקצאות לחיילים:</p>
-                    <ScrollArea className="h-[60px] pr-2">
-                        <ul className="list-disc ps-5 text-xs space-y-0.5">
-                            {item.assignments.map(asgn => (
-                                <li key={asgn.soldierId}>
-                                    {asgn.soldierName || `חייל (${asgn.soldierId.substring(0,4)}...)`}: {asgn.quantity} יח'
-                                    {asgn.soldierDivisionName && <span className="text-muted-foreground"> ({asgn.soldierDivisionName})</span>}
-                                </li>
-                            ))}
-                        </ul>
-                    </ScrollArea>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground flex items-center"><Archive className="w-3.5 h-3.5 me-1.5 text-muted-foreground"/>פריט כמותי, אין הקצאות פעילות.</p>
-                )}
-              </CardContent>
-              <CardFooter className="flex justify-end gap-2">
-                 {item.isUniqueItem && item.linkedSoldierId && (
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" title="בטל שיוך ואחסן פריט">
-                          <Unlink2 className="w-4 h-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>אישור ביטול שיוך ואחסון</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            האם אתה בטוח שברצונך לבטל את שיוך הפריט "{item.itemTypeName} ({item.itemId})" ולהעבירו למצב "מאוחסן"?
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>ביטול</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleUnlinkAndStoreItem(item)} className="bg-primary hover:bg-primary/90">אשר</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
-                 <Button variant="ghost" size="icon" onClick={() => openEditItemDialog(item)}>
-                    <Edit3 className="w-4 h-4" />
-                 </Button>
-                 <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon"><Trash2 className="w-4 h-4 text-destructive" /></Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                        <AlertDialogTitle>אישור מחיקה</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            האם אתה בטוח שברצונך למחוק את הפריט מסוג "{item.itemTypeName || 'לא ידוע'}"
-                            {item.isUniqueItem && item.itemId ? ` (סריאלי: ${item.itemId})` : (!item.isUniqueItem ? ` (סה"כ: ${item.totalQuantity})`: '')}?
-                        </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                        <AlertDialogCancel>ביטול</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleDeleteItem(item.id)} className="bg-destructive hover:bg-destructive/90">מחק</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-              </CardFooter>
-            </Card>
-          )})}
-        </div>
+        <Accordion type="multiple" defaultValue={["unique-items", "non-unique-items"]} className="w-full space-y-4">
+          <AccordionItem value="unique-items">
+            <AccordionTrigger>
+              <h2 className="text-xl font-semibold">
+                פריטים ייחודיים ({uniqueFilteredItems.length})
+              </h2>
+            </AccordionTrigger>
+            <AccordionContent>
+              {uniqueFilteredItems.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4">אין פריטים ייחודיים התואמים לחיפוש או לסינון.</p>
+              ) : (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pt-4">
+                  {uniqueFilteredItems.map((item) => renderArmoryItemCard(item))}
+                </div>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="non-unique-items">
+            <AccordionTrigger>
+               <h2 className="text-xl font-semibold">
+                פריטים כמותיים ({nonUniqueFilteredItems.length})
+              </h2>
+            </AccordionTrigger>
+            <AccordionContent>
+              {nonUniqueFilteredItems.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4">אין פריטים כמותיים התואמים לחיפוש או לסינון.</p>
+              ) : (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 pt-4">
+                  {nonUniqueFilteredItems.map((item) => renderArmoryItemCard(item))}
+                </div>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       )}
     </div>
   );
 }
 
+    

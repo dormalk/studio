@@ -147,7 +147,7 @@ export async function addArmoryItem(
     if (error instanceof Error) {
         throw error;
     }
-    throw new Error("הוספת פריט נשקייה נכשלה עקב שגיאה לא צפויה.");
+    throw new Error("הוספת פריט מחסן נכשלה עקב שגיאה לא צפויה.");
   }
 }
 
@@ -419,7 +419,7 @@ export async function manageSoldierAssignmentToNonUniqueItem(
   try {
     const itemSnap = await getDoc(itemDocRef);
     if (!itemSnap.exists()) {
-      throw new Error("פריט הנשקייה לא נמצא.");
+      throw new Error("פריט המחסן לא נמצא.");
     }
     const itemData = itemSnap.data() as ArmoryItem;
 

@@ -183,7 +183,7 @@ export function DivisionsClient({ initialDivisions }: DivisionsClientProps) {
                 </p>
                 <p className="text-sm text-muted-foreground flex items-center">
                   <Package className="w-4 h-4 me-2" />
-                  פריטי נשקייה: <span className="font-semibold ms-1">{division.armoryItemCount}</span>
+                  פריטי מחסן: <span className="font-semibold ms-1">{division.armoryItemCount}</span>
                 </p>
               </CardContent>
               <CardFooter>

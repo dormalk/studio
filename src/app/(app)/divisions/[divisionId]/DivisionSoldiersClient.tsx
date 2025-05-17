@@ -39,7 +39,7 @@ export function DivisionSoldiersClient({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>סיכום נשקייה פלוגתי</CardTitle>
+          <CardTitle>סיכום מחסן פלוגתי</CardTitle>
           <CardDescription>סה"כ פריטים המשויכים לחיילי הפלוגה "{divisionName}"</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -61,7 +61,7 @@ export function DivisionSoldiersClient({
             </div>
           )}
           {divisionArmorySummary.nonUniqueItemsSummaryInDivision.length === 0 && divisionArmorySummary.totalUniqueItemsInDivision === 0 && (
-             <p className="text-sm text-muted-foreground">אין פריטי נשקייה משויכים לחיילים בפלוגה זו.</p>
+             <p className="text-sm text-muted-foreground">אין פריטי מחסן משויכים לחיילים בפלוגה זו.</p>
           )}
         </CardContent>
       </Card>
@@ -93,10 +93,10 @@ export function DivisionSoldiersClient({
               </CardHeader>
               <CardContent className="flex-grow space-y-3">
                 <div>
-                  <p className="text-xs font-medium mb-0.5">סיכום נשקייה:</p>
+                  <p className="text-xs font-medium mb-0.5">סיכום מחסן:</p>
                   {(!soldier.assignedUniqueArmoryItemsDetails || soldier.assignedUniqueArmoryItemsDetails.length === 0) &&
                    (!soldier.assignedNonUniqueArmoryItemsSummary || soldier.assignedNonUniqueArmoryItemsSummary.length === 0) ? (
-                    <p className="text-xs text-muted-foreground">אין פריטי נשקייה משויכים.</p>
+                    <p className="text-xs text-muted-foreground">אין פריטי מחסן משויכים.</p>
                   ) : (
                     <>
                       {(soldier.assignedUniqueArmoryItemsDetails && soldier.assignedUniqueArmoryItemsDetails.length > 0) && (

@@ -100,7 +100,7 @@ const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRef
 type ArmoryItemFormDataOnSoldierPage = z.infer<typeof armoryItemSchemaOnSoldierPage>;
 
 const assignNonUniqueSchema = z.object({
-    selectedArmoryItemId: z.string().min(1, "יש לבחור פריט נשקייה"),
+    selectedArmoryItemId: z.string().min(1, "יש לבחור פריט מחסן"),
     quantityToAssign: z.number().int().min(1, "כמות חייבת להיות מספר חיובי גדול מאפס"),
 });
 type AssignNonUniqueFormData = z.infer<typeof assignNonUniqueSchema>;
@@ -493,11 +493,11 @@ export function SoldierDetailClient({
       setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
       setAllExistingArmoryItems(prev => [...prev, newItemForState]); // Add to all items list as well
 
-      toast({ title: "הצלחה", description: `פריט נשקייה (${type.name}) נוסף ושויך לחייל.` });
+      toast({ title: "הצלחה", description: `פריט מחסן (${type.name}) נוסף ושויך לחייל.` });
       setIsAddOrLinkUniqueArmoryItemDialogOpen(false);
 
     } catch (error: any) {
-      toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת פריט נשקייה נכשלה." });
+      toast({ variant: "destructive", title: "שגיאה", description: error.message || "הוספת פריט מחסן נכשלה." });
     }
   };
   
@@ -855,7 +855,7 @@ export function SoldierDetailClient({
 
       <Card className="md:col-span-3">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle>פריטי נשקייה משויכים</CardTitle>
+            <CardTitle>פריטי מחסן משויכים</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
             <div>
@@ -867,7 +867,7 @@ export function SoldierDetailClient({
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-[525px]">
                             <DialogHeader>
-                                <DialogTitle>הוסף או קשר פריט נשקייה ייחודי</DialogTitle>
+                                <DialogTitle>הוסף או קשר פריט מחסן ייחודי</DialogTitle>
                                 <DialogDescription>צור פריט ייחודי חדש או קשר פריט ייחודי קיים לחייל {soldier.name}.</DialogDescription>
                             </DialogHeader>
                             <RadioGroup defaultValue="create" className="my-4" value={addOrLinkDialogMode} onValueChange={(value: 'create' | 'link') => {
@@ -1051,7 +1051,7 @@ export function SoldierDetailClient({
                     </Dialog>
                 </div>
                  {uniqueItemsAssigned.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">אין פריטי נשקייה ייחודיים המשויכים לחייל זה.</p>
+                    <p className="text-sm text-muted-foreground text-center py-4">אין פריטי מחסן ייחודיים המשויכים לחייל זה.</p>
                 ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {uniqueItemsAssigned.map((item) => (
@@ -1099,7 +1099,7 @@ export function SoldierDetailClient({
                             </AlertDialog>
                             <Button variant="outline" size="sm" asChild className="flex-1">
                             <Link href={`/armory`}>
-                                הצג בנשקייה
+                                הצג במחסן
                             </Link>
                             </Button>
                         </CardFooter>

@@ -29,7 +29,7 @@ export function SidebarNav({ className, isMobile = false, ...props }: SidebarNav
     },
     {
       href: "/armory",
-      label: "נשקייה",
+      label: "מחסן",
       icon: Archive,
       active: pathname === "/armory" || pathname.startsWith("/armory"),
     },

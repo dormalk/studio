@@ -675,10 +675,10 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
               </CardHeader>
               <CardContent className="flex-grow space-y-3">
                 <div>
-                  <p className="text-xs font-medium mb-0.5">סיכום נשקייה:</p>
+                  <p className="text-xs font-medium mb-0.5">סיכום מחסן:</p>
                   {(!soldier.assignedUniqueArmoryItemsDetails || soldier.assignedUniqueArmoryItemsDetails.length === 0) && 
                    (!soldier.assignedNonUniqueArmoryItemsSummary || soldier.assignedNonUniqueArmoryItemsSummary.length === 0) ? (
-                    <p className="text-xs text-muted-foreground">אין פריטי נשקייה משויכים.</p>
+                    <p className="text-xs text-muted-foreground">אין פריטי מחסן משויכים.</p>
                   ) : (
                     <>
                       {(soldier.assignedUniqueArmoryItemsDetails && soldier.assignedUniqueArmoryItemsDetails.length > 0) && (
