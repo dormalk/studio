@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, Edit3, Camera, RefreshCw, ListChecks, User, PackageSearch, Building, FileSpreadsheet, Users2, Archive, MapPin } from "lucide-react";
+import { PlusCircle, Trash2, Edit3, Camera, RefreshCw, ListChecks, User, PackageSearch, Building, FileSpreadsheet, Users2, Archive, MapPin, Unlink2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -151,6 +151,11 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   const itemForm = useForm<ArmoryItemFormData>({
     resolver: zodResolver(armoryItemSchema),
     defaultValues: { itemTypeId: "", itemId: "", totalQuantity: 1, linkedSoldierId: NO_SOLDIER_LINKED_VALUE, isStored: false, shelfNumber: "" },
+  });
+
+  const itemTypeForm = useForm<ArmoryItemTypeFormData>({
+    resolver: zodResolver(armoryItemTypeSchema),
+    defaultValues: { name: "", isUnique: true },
   });
 
   const itemFormIsStored = itemForm.watch("isStored");
@@ -957,5 +962,3 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   );
 }
 
-
-    
