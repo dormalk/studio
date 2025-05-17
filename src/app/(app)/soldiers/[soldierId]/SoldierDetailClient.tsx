@@ -240,6 +240,7 @@ export function SoldierDetailClient({
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = isUnique;
       if (type && type.isUnique) {
         const currentIsStored = addUniqueArmoryItemForm.getValues("isStored");
+        addUniqueArmoryItemForm.setValue("isStored", currentIsStored || false); 
         if (currentIsStored === false) {
             addUniqueArmoryItemForm.setValue("shelfNumber", "");
         }
@@ -308,8 +309,9 @@ export function SoldierDetailClient({
         
         const nameParts = file.name.split('.');
         const ext = nameParts.length > 1 ? "." + nameParts.pop() : "";
+        const base = nameParts.join('.');
         
-        setFileNameBase(""); 
+        setFileNameBase(base); // Set only base name
         setFileNameExt(ext);
     } else {
         setSelectedFile(null);
@@ -508,15 +510,19 @@ export function SoldierDetailClient({
     }
     
     try {
-        // Preserve existing isStored and shelfNumber if they exist on the item being linked
         const updatesForItem: Partial<ArmoryItem> = {
             linkedSoldierId: soldier.id,
         };
         if (itemToLink.hasOwnProperty('isStored')) {
             updatesForItem.isStored = itemToLink.isStored;
+        } else {
+            updatesForItem.isStored = false; // Default to not stored if linking an item without this info
         }
-        if (itemToLink.hasOwnProperty('shelfNumber')) {
+
+        if (updatesForItem.isStored && itemToLink.hasOwnProperty('shelfNumber')) {
             updatesForItem.shelfNumber = itemToLink.shelfNumber;
+        } else if (!updatesForItem.isStored) {
+            updatesForItem.shelfNumber = null;
         }
 
 
@@ -527,12 +533,20 @@ export function SoldierDetailClient({
             linkedSoldierId: soldier.id,
             linkedSoldierName: soldier.name,
             linkedSoldierDivisionName: soldier.divisionName,
+            isStored: updatesForItem.isStored,
+            shelfNumber: updatesForItem.shelfNumber || undefined,
         };
         setArmoryItemsForSoldier(prev => [...prev, updatedItemForSoldierList]);
 
         setAllExistingArmoryItems(prev => prev.map(item => 
             item.id === itemIdToLink 
-            ? { ...item, linkedSoldierId: soldier.id, linkedSoldierName: soldier.name, linkedSoldierDivisionName: soldier.divisionName } 
+            ? { ...item, 
+                linkedSoldierId: soldier.id, 
+                linkedSoldierName: soldier.name, 
+                linkedSoldierDivisionName: soldier.divisionName,
+                isStored: updatesForItem.isStored,
+                shelfNumber: updatesForItem.shelfNumber || undefined,
+              } 
             : item
         ));
         
@@ -546,7 +560,7 @@ export function SoldierDetailClient({
   const handleUnlinkUniqueItem = async (armoryItemId: string) => {
     if (!soldier) return;
     try {
-        await updateArmoryItem(armoryItemId, { linkedSoldierId: null });
+        await updateArmoryItem(armoryItemId, { linkedSoldierId: null }); // Server action will handle null correctly
 
         setArmoryItemsForSoldier(prev => prev.filter(item => item.id !== armoryItemId));
         
@@ -916,7 +930,7 @@ export function SoldierDetailClient({
                                                 render={({ field }) => (
                                                     <Checkbox
                                                         id="isStoredNewItemSoldierPage"
-                                                        checked={!!field.value} // Ensure checked is boolean
+                                                        checked={!!field.value} 
                                                         onCheckedChange={(checked) => {
                                                             field.onChange(checked);
                                                             if (checked === false) {
@@ -998,7 +1012,7 @@ export function SoldierDetailClient({
                                                         ) : (
                                                             availableUniqueItemsToLink.map(item => (
                                                                 <SelectItem key={item.id} value={item.id}>
-                                                                    {item.itemTypeName} - {item.itemId} {item.shelfNumber && item.isStored ? `(מדף: ${item.shelfNumber})` : ""} {item.isStored ? "(מאוחסן)" : ""}
+                                                                    {item.itemTypeName} - {item.itemId} {item.isStored && item.shelfNumber ? `(מדף: ${item.shelfNumber})` : ""} {item.isStored ? "(מאוחסן)" : ""}
                                                                 </SelectItem>
                                                             ))
                                                         )}
@@ -1049,7 +1063,7 @@ export function SoldierDetailClient({
                         <CardFooter className="flex flex-row items-center gap-2">
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
-                                    <Button variant="outline" size="sm" className="flex-1"><Unlink2 className="me-2 h-3.5 w-3.5"/> בטל שיוך</Button>
+                                    <Button variant="destructive" size="sm" className="flex-1"><Unlink2 className="me-2 h-3.5 w-3.5"/> בטל שיוך</Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                     <AlertDialogHeader>
@@ -1206,6 +1220,3 @@ export function SoldierDetailClient({
     </div>
   );
 }
-
-
-    
