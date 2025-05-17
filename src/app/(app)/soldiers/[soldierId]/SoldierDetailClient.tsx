@@ -311,7 +311,7 @@ export function SoldierDetailClient({
         const ext = nameParts.length > 1 ? "." + nameParts.pop() : "";
         const base = nameParts.join('.');
         
-        setFileNameBase(base); // Set only base name
+        setFileNameBase(""); // Default to empty for custom name
         setFileNameExt(ext);
     } else {
         setSelectedFile(null);
@@ -471,6 +471,8 @@ export function SoldierDetailClient({
         isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : false,
         shelfNumber: (validatedValues.isStored && validatedValues.shelfNumber && validatedValues.shelfNumber.trim() !== "") ? validatedValues.shelfNumber.trim() : undefined,
       };
+       if (dataToSave.isStored === false) dataToSave.shelfNumber = undefined;
+
 
       const newItemServer = await addArmoryItem(dataToSave);
 
@@ -513,17 +515,12 @@ export function SoldierDetailClient({
         const updatesForItem: Partial<ArmoryItem> = {
             linkedSoldierId: soldier.id,
         };
-        if (itemToLink.hasOwnProperty('isStored')) {
-            updatesForItem.isStored = itemToLink.isStored;
-        } else {
-            updatesForItem.isStored = false; // Default to not stored if linking an item without this info
-        }
-
-        if (updatesForItem.isStored && itemToLink.hasOwnProperty('shelfNumber')) {
-            updatesForItem.shelfNumber = itemToLink.shelfNumber;
-        } else if (!updatesForItem.isStored) {
-            updatesForItem.shelfNumber = null;
-        }
+        
+        // Determine isStored and shelfNumber based on itemToLink's current state
+        // If an item is linked to a soldier, it's typically considered "issued" (not stored)
+        // unless explicitly marked otherwise later.
+        updatesForItem.isStored = false; 
+        updatesForItem.shelfNumber = undefined;
 
 
         await updateArmoryItem(itemIdToLink, updatesForItem);
@@ -534,7 +531,7 @@ export function SoldierDetailClient({
             linkedSoldierName: soldier.name,
             linkedSoldierDivisionName: soldier.divisionName,
             isStored: updatesForItem.isStored,
-            shelfNumber: updatesForItem.shelfNumber || undefined,
+            shelfNumber: updatesForItem.shelfNumber,
         };
         setArmoryItemsForSoldier(prev => [...prev, updatedItemForSoldierList]);
 
@@ -545,7 +542,7 @@ export function SoldierDetailClient({
                 linkedSoldierName: soldier.name, 
                 linkedSoldierDivisionName: soldier.divisionName,
                 isStored: updatesForItem.isStored,
-                shelfNumber: updatesForItem.shelfNumber || undefined,
+                shelfNumber: updatesForItem.shelfNumber,
               } 
             : item
         ));
@@ -557,22 +554,34 @@ export function SoldierDetailClient({
     }
   };
 
-  const handleUnlinkUniqueItem = async (armoryItemId: string) => {
+  const handleUnlinkUniqueItemAndStore = async (armoryItemId: string) => {
     if (!soldier) return;
     try {
-        await updateArmoryItem(armoryItemId, { linkedSoldierId: null }); // Server action will handle null correctly
+        // Update the item: unlink from soldier and mark as stored
+        await updateArmoryItem(armoryItemId, { 
+            linkedSoldierId: null,
+            isStored: true 
+        });
 
+        // Update local state for items assigned to this soldier
         setArmoryItemsForSoldier(prev => prev.filter(item => item.id !== armoryItemId));
         
+        // Update local state for all existing armory items
         setAllExistingArmoryItems(prev => prev.map(item => 
             item.id === armoryItemId 
-            ? { ...item, linkedSoldierId: null, linkedSoldierName: undefined, linkedSoldierDivisionName: undefined } 
+            ? { 
+                ...item, 
+                linkedSoldierId: null, 
+                linkedSoldierName: undefined, 
+                linkedSoldierDivisionName: undefined,
+                isStored: true 
+              } 
             : item
         ));
 
-        toast({ title: "הצלחה", description: "הפריט נותק מהחייל." });
+        toast({ title: "הצלחה", description: "הפריט נותק מהחייל ואוחסן." });
     } catch (error: any) {
-        toast({ variant: "destructive", title: "שגיאה", description: error.message || "ביטול קישור הפריט נכשל." });
+        toast({ variant: "destructive", title: "שגיאה", description: error.message || "ביטול שיוך ואחסון הפריט נכשל." });
     }
   };
 
@@ -861,7 +870,17 @@ export function SoldierDetailClient({
                                 <DialogTitle>הוסף או קשר פריט נשקייה ייחודי</DialogTitle>
                                 <DialogDescription>צור פריט ייחודי חדש או קשר פריט ייחודי קיים לחייל {soldier.name}.</DialogDescription>
                             </DialogHeader>
-                            <RadioGroup defaultValue="create" className="my-4" value={addOrLinkDialogMode} onValueChange={(value: 'create' | 'link') => setAddOrLinkDialogMode(value)}>
+                            <RadioGroup defaultValue="create" className="my-4" value={addOrLinkDialogMode} onValueChange={(value: 'create' | 'link') => {
+                                setAddOrLinkDialogMode(value);
+                                if (value === 'create') {
+                                    linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
+                                    setLinkItemSearchTerm('');
+                                } else {
+                                    addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""});
+                                    setScannedArmoryImagePreview(null);
+                                    setSelectedItemTypeForSoldierPageIsUnique(null);
+                                }
+                            }}>
                                 <div className="flex items-center space-x-2 rtl:space-x-reverse">
                                     <RadioGroupItem value="create" id="modeCreate" />
                                     <Label htmlFor="modeCreate">צור פריט חדש</Label>
@@ -1063,18 +1082,18 @@ export function SoldierDetailClient({
                         <CardFooter className="flex flex-row items-center gap-2">
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
-                                    <Button variant="destructive" size="sm" className="flex-1"><Unlink2 className="me-2 h-3.5 w-3.5"/> בטל שיוך</Button>
+                                    <Button variant="destructive" size="sm" className="flex-1"><Unlink2 className="me-2 h-3.5 w-3.5"/> בטל שיוך ואחסן</Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                     <AlertDialogHeader>
-                                        <AlertDialogTitle>אישור ביטול שיוך</AlertDialogTitle>
+                                        <AlertDialogTitle>אישור ביטול שיוך ואחסון</AlertDialogTitle>
                                         <AlertDialogDescription>
-                                            האם אתה בטוח שברצונך לבטל את שיוך הפריט "{item.itemTypeName} ({item.itemId})" מחייל זה?
+                                            האם אתה בטוח שברצונך לבטל את שיוך הפריט "{item.itemTypeName} ({item.itemId})" מחייל זה ולהעביר אותו למצב "מאוחסן"?
                                         </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
                                         <AlertDialogCancel>לא</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => handleUnlinkUniqueItem(item.id)} className="bg-destructive hover:bg-destructive/90">כן, בטל שיוך</AlertDialogAction>
+                                        <AlertDialogAction onClick={() => handleUnlinkUniqueItemAndStore(item.id)} className="bg-destructive hover:bg-destructive/90">כן, בטל שיוך ואחסן</AlertDialogAction>
                                     </AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
@@ -1220,3 +1239,4 @@ export function SoldierDetailClient({
     </div>
   );
 }
+
