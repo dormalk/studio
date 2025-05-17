@@ -68,7 +68,7 @@ const armoryItemBaseSchema = z.object({
   totalQuantity: z.number().int().positive("כמות חייבת להיות מספר חיובי").optional(),
   photoDataUri: z.string().optional(),
   linkedSoldierId: z.string().optional(),
-  isStored: z.boolean().optional().default(false),
+  isStored: z.boolean().optional().default(true), // Default to true
   shelfNumber: z.string().optional(),
 });
 
@@ -159,7 +159,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
 
   const itemForm = useForm<ArmoryItemFormData>({
     resolver: zodResolver(armoryItemSchema),
-    defaultValues: { itemTypeId: "", itemId: "", totalQuantity: 1, linkedSoldierId: NO_SOLDIER_LINKED_VALUE, isStored: false, shelfNumber: "" },
+    defaultValues: { itemTypeId: "", itemId: "", totalQuantity: 1, linkedSoldierId: NO_SOLDIER_LINKED_VALUE, isStored: true, shelfNumber: "" },
   });
 
   const itemTypeForm = useForm<ArmoryItemTypeFormData>({
@@ -196,7 +196,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = isUnique;
       if (type && type.isUnique) {
         const currentIsStored = itemForm.getValues("isStored");
-        itemForm.setValue("isStored", currentIsStored || false);
+        itemForm.setValue("isStored", currentIsStored === undefined ? true : currentIsStored); // Default to true if undefined
         if (currentIsStored === false) {
             itemForm.setValue("shelfNumber", "");
         }
@@ -215,7 +215,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     if (editingItem) {
       const type = armoryItemTypes.find(t => t.id === editingItem.itemTypeId);
       const isUnique = type ? type.isUnique : editingItem.isUniqueItem;
-      const currentIsStored = isUnique ? (editingItem.isStored !== undefined ? editingItem.isStored : false) : false;
+      const currentIsStored = isUnique ? (editingItem.isStored !== undefined ? editingItem.isStored : true) : false; // Default to true for unique editing
       setSelectedItemTypeIsUnique(isUnique);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = isUnique;
 
@@ -230,7 +230,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       });
       setScannedImagePreview(editingItem.imageUrl || null);
     } else {
-      itemForm.reset({ itemTypeId: "", itemId: "", totalQuantity: 1, linkedSoldierId: NO_SOLDIER_LINKED_VALUE, isStored: false, shelfNumber: "", photoDataUri: undefined });
+      itemForm.reset({ itemTypeId: "", itemId: "", totalQuantity: 1, linkedSoldierId: NO_SOLDIER_LINKED_VALUE, isStored: true, shelfNumber: "", photoDataUri: undefined });
       setSelectedItemTypeIsUnique(null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = null;
       setScannedImagePreview(null);
@@ -330,7 +330,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
             const typeForForm = armoryItemTypes.find(t => t.id === matchedType.id);
             setSelectedItemTypeIsUnique(typeForForm ? typeForForm.isUnique : null);
             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = typeForForm ? typeForForm.isUnique : null;
-            if (typeForForm && !typeForForm.isUnique) itemForm.setValue("isStored", false);
+            if (typeForForm && !typeForForm.isUnique) itemForm.setValue("isStored", false); else itemForm.setValue("isStored", true); // Set isStored to true for unique type
             itemForm.trigger();
 
             toast({ title: "סריקה הושלמה", description: `זוהה סוג: ${matchedType.name}${matchedType.isUnique ? `, מספר סריאלי: ${result.itemId}` : ''}` });
@@ -371,7 +371,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
         imageUrl: validatedValues.photoDataUri || (editingItem?.imageUrl && !validatedValues.photoDataUri ? editingItem.imageUrl : undefined),
         itemId: type.isUnique ? validatedValues.itemId : undefined,
         linkedSoldierId: type.isUnique ? ((validatedValues.linkedSoldierId === NO_SOLDIER_LINKED_VALUE || !validatedValues.linkedSoldierId) ? undefined : validatedValues.linkedSoldierId) : undefined,
-        isStored: type.isUnique ? (validatedValues.isStored !== undefined ? validatedValues.isStored : false) : undefined,
+        isStored: type.isUnique ? (validatedValues.isStored !== undefined ? validatedValues.isStored : true) : undefined, // Default isStored to true for unique items
         shelfNumber: (type.isUnique && validatedValues.isStored) ? (validatedValues.shelfNumber || undefined) : undefined,
         totalQuantity: !type.isUnique ? validatedValues.totalQuantity : undefined,
       };
@@ -775,7 +775,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                 setSelectedItemTypeIsUnique(null);
                 (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE__ = null;
                 if(fileInputRef.current) fileInputRef.current.value = "";
-                itemForm.reset({ itemTypeId: "", itemId: "", totalQuantity: 1, linkedSoldierId: NO_SOLDIER_LINKED_VALUE, isStored: false, shelfNumber: "", photoDataUri: undefined });
+                itemForm.reset({ itemTypeId: "", itemId: "", totalQuantity: 1, linkedSoldierId: NO_SOLDIER_LINKED_VALUE, isStored: true, shelfNumber: "", photoDataUri: undefined });
                 setSoldierFilterInDialog("");
               }
             }}>
@@ -803,7 +803,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                                 if (type.isUnique) {
                                     itemForm.setValue("totalQuantity", undefined);
                                     const currentIsStored = itemForm.getValues("isStored");
-                                    itemForm.setValue("isStored", currentIsStored || false);
+                                    itemForm.setValue("isStored", currentIsStored === undefined ? true : currentIsStored); // Default true if undefined
                                     if (!currentIsStored) {
                                         itemForm.setValue("shelfNumber", "");
                                     }
@@ -1078,3 +1078,4 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     </div>
   );
 }
+
