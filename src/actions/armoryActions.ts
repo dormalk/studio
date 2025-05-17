@@ -98,6 +98,10 @@ export async function addArmoryItem(
       dataToSaveForFirestore.linkedSoldierId = itemData.linkedSoldierId ? itemData.linkedSoldierId : null;
       dataToSaveForFirestore.isStored = itemData.isStored !== undefined ? itemData.isStored : false;
 
+      if (dataToSaveForFirestore.isStored === false && dataToSaveForFirestore.linkedSoldierId === null) {
+        throw new Error("פריט ייחודי שאינו מאוחסן (מונפק) חייב להיות משויך לחייל.");
+      }
+
       if (dataToSaveForFirestore.isStored) {
         dataToSaveForFirestore.shelfNumber = itemData.shelfNumber && String(itemData.shelfNumber).trim() !== "" ? String(itemData.shelfNumber).trim() : null;
       } else {
@@ -125,14 +129,14 @@ export async function addArmoryItem(
         id: docRef.id,
         itemTypeId: itemData.itemTypeId,
         isUniqueItem: isActuallyUnique,
-        imageUrl: itemData.imageUrl || undefined,
+        imageUrl: dataToSaveForFirestore.imageUrl === null ? undefined : dataToSaveForFirestore.imageUrl,
         itemId: isActuallyUnique ? dataToSaveForFirestore.itemId : undefined,
         linkedSoldierId: isActuallyUnique ? (dataToSaveForFirestore.linkedSoldierId === null ? null : dataToSaveForFirestore.linkedSoldierId) : undefined,
         isStored: isActuallyUnique ? dataToSaveForFirestore.isStored : undefined,
         shelfNumber: (isActuallyUnique && dataToSaveForFirestore.isStored) ? (dataToSaveForFirestore.shelfNumber === null ? undefined : dataToSaveForFirestore.shelfNumber) : undefined,
         totalQuantity: !isActuallyUnique ? dataToSaveForFirestore.totalQuantity : undefined,
         assignments: !isActuallyUnique ? [] : undefined,
-        itemTypeName: "",
+        itemTypeName: "", // Will be enriched by client or getArmoryItems
         linkedSoldierName: undefined,
         linkedSoldierDivisionName: undefined,
     };
@@ -293,6 +297,10 @@ export async function updateArmoryItem(
       const finalIsStored = updates.hasOwnProperty('isStored') ? updates.isStored : (oldData.isStored !== undefined ? oldData.isStored : false);
       dataToUpdate.isStored = finalIsStored;
 
+      if (finalIsStored === false && dataToUpdate.linkedSoldierId === null) {
+        throw new Error("פריט ייחודי שאינו מאוחסן (מונפק) חייב להיות משויך לחייל.");
+      }
+      
       if (finalIsStored) {
           if (updates.hasOwnProperty('shelfNumber')) {
               dataToUpdate.shelfNumber = updates.shelfNumber && String(updates.shelfNumber).trim() !== "" ? String(updates.shelfNumber).trim() : null;
@@ -480,3 +488,6 @@ export async function manageSoldierAssignmentToNonUniqueItem(
     throw new Error("פעולת הקצאת/עדכון כמות נכשלה.");
   }
 }
+
+
+    

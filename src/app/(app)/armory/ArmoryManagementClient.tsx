@@ -84,6 +84,20 @@ const armoryItemSchema = armoryItemBaseSchema.superRefine((data, ctx) => {
             message: "לא ניתן להזין מספר מדף אם הפריט אינו מאוחסן",
         });
     }
+    // New validation: If unique item is not stored (issued), it must be linked to a soldier.
+    if ((data.isStored === false || data.isStored === undefined) && 
+        (!data.linkedSoldierId || data.linkedSoldierId === NO_SOLDIER_LINKED_VALUE)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["isStored"],
+        message: "פריט ייחודי שאינו מאוחסן (מונפק) חייב להיות משויך לחייל. או סמן כמאוחסן או שייך לחייל.",
+      });
+       ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["linkedSoldierId"],
+        message: "פריט ייחודי שאינו מאוחסן (מונפק) חייב להיות משויך לחייל. או סמן כמאוחסן או שייך לחייל.",
+      });
+    }
   } else if (isUnique === false) {
     if (data.totalQuantity === undefined || data.totalQuantity === null || data.totalQuantity <= 0) {
       ctx.addIssue({
@@ -137,11 +151,6 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   const itemForm = useForm<ArmoryItemFormData>({
     resolver: zodResolver(armoryItemSchema),
     defaultValues: { itemTypeId: "", itemId: "", totalQuantity: 1, linkedSoldierId: NO_SOLDIER_LINKED_VALUE, isStored: false, shelfNumber: "" },
-  });
-
-  const itemTypeForm = useForm<ArmoryItemTypeFormData>({
-    resolver: zodResolver(armoryItemTypeSchema),
-    defaultValues: { name: "", isUnique: true },
   });
 
   const itemFormIsStored = itemForm.watch("isStored");
@@ -687,13 +696,15 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                                         if (checked === false) {
                                             itemForm.setValue("shelfNumber", "");
                                         }
-                                        itemForm.trigger("shelfNumber");
+                                        itemForm.trigger(["shelfNumber", "linkedSoldierId"]); // Trigger validation for linkedSoldierId too
                                     }}
                                 />
                             )}
                         />
                         <Label htmlFor="isStoredItem" className="text-sm font-normal">הפריט מאוחסן</Label>
                     </div>
+                    {itemForm.formState.errors.isStored && <p className="text-destructive text-sm">{itemForm.formState.errors.isStored.message}</p>}
+
                     {itemFormIsStored && selectedItemTypeIsUnique === true && (
                         <div>
                             <Label htmlFor="shelfNumber">מספר מדף (אופציונלי)</Label>
@@ -707,7 +718,13 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                         name="linkedSoldierId"
                         control={itemForm.control}
                         render={({ field }) => (
-                          <Select onValueChange={field.onChange} value={field.value || NO_SOLDIER_LINKED_VALUE}>
+                          <Select 
+                            onValueChange={(value) => {
+                                field.onChange(value);
+                                itemForm.trigger(["isStored"]); // Trigger validation for isStored when soldier link changes
+                            }} 
+                            value={field.value || NO_SOLDIER_LINKED_VALUE}
+                          >
                             <SelectTrigger id="linkedSoldierIdSelect">
                               <SelectValue placeholder="בחר חייל..." />
                             </SelectTrigger>
@@ -738,6 +755,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                           </Select>
                         )}
                       />
+                       {itemForm.formState.errors.linkedSoldierId && <p className="text-destructive text-sm">{itemForm.formState.errors.linkedSoldierId.message}</p>}
                     </div>
                   </>
                 )}
@@ -938,3 +956,6 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
     </div>
   );
 }
+
+
+    
