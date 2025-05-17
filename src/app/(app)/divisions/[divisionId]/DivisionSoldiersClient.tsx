@@ -68,7 +68,7 @@ export function DivisionSoldiersClient({
 
       <Input
         type="search"
-        placeholder="חפש חייל לפי שם או ת.ז..."
+        placeholder="חפש חייל לפי שם או מ.א..."
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
         className="max-w-sm"
@@ -87,7 +87,7 @@ export function DivisionSoldiersClient({
                   <UserCircle className="h-10 w-10 text-muted-foreground" />
                   <div>
                     <CardTitle>{soldier.name}</CardTitle>
-                    <CardDescription>ת.ז. {soldier.id}</CardDescription>
+                    <CardDescription>מ.א. {soldier.id}</CardDescription>
                   </div>
                 </div>
               </CardHeader>

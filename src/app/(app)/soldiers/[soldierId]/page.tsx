@@ -47,7 +47,7 @@ export default async function SoldierPage({ params }: SoldierPageProps) {
   return (
     <div className="container mx-auto py-8 space-y-8">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">פרטי חייל: {soldier.name} (ת.ז. {soldierId})</h1>
+        <h1 className="text-3xl font-bold">פרטי חייל: {soldier.name} (מ.א. {soldierId})</h1>
         <Button asChild variant="outline">
             <Link href="/soldiers">
                 <ArrowRight className="ms-2 h-4 w-4" />

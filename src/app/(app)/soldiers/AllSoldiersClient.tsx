@@ -57,7 +57,7 @@ import type { Timestamp } from "firebase/firestore";
 import * as XLSX from 'xlsx';
 
 const soldierSchema = z.object({
-  id: z.string().min(1, "ת.ז. הינו שדה חובה").regex(/^\d+$/, "ת.ז. חייבת להכיל מספרים בלבד"),
+  id: z.string().min(1, "מ.א. הינו שדה חובה").regex(/^\d+$/, "מ.א. חייבת להכיל מספרים בלבד"),
   name: z.string().min(1, "שם הינו שדה חובה"),
   divisionId: z.string().min(1, "יש לבחור פלוגה"),
 });
@@ -497,7 +497,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             </DialogHeader>
             <form onSubmit={soldierForm.handleSubmit(handleAddOrUpdateSoldier)} className="space-y-4">
               <div>
-                <Label htmlFor="soldierId">ת.ז.</Label>
+                <Label htmlFor="soldierId">מ.א.</Label>
                 <Input id="soldierId" {...soldierForm.register("id")} disabled={!!editingSoldier} />
                 {soldierForm.formState.errors.id && <p className="text-destructive text-sm">{soldierForm.formState.errors.id.message}</p>}
               </div>
@@ -632,7 +632,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
 
       <Input
         type="search"
-        placeholder="חפש חייל לפי שם או ת.ז..."
+        placeholder="חפש חייל לפי שם או מ.א..."
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
         className="max-w-sm"
@@ -670,7 +670,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
                           </AlertDialog>
                       </div>
                   </div>
-                  <CardDescription>ת.ז. {soldier.id}</CardDescription>
+                  <CardDescription>מ.א. {soldier.id}</CardDescription>
                   <CardDescription>פלוגה: {soldier.divisionName || "לא משויך"}</CardDescription>
               </CardHeader>
               <CardContent className="flex-grow space-y-3">

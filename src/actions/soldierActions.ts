@@ -36,7 +36,7 @@ export async function addSoldier(soldierData: Omit<Soldier, 'divisionName' | 'do
     const soldierDocRef = doc(db, "soldiers", soldierData.id);
     const soldierDocSnap = await getDoc(soldierDocRef);
     if (soldierDocSnap.exists()) {
-      throw new Error(`חייל עם ת.ז. ${soldierData.id} כבר קיים.`);
+      throw new Error(`חייל עם מ.א. ${soldierData.id} כבר קיים.`);
     }
 
     const newSoldierData = {

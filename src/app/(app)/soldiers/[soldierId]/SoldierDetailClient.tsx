@@ -694,7 +694,7 @@ export function SoldierDetailClient({
           <div className="flex justify-between items-start">
             <div>
                 <CardTitle className="flex items-center gap-2"><UserCircle className="w-7 h-7 text-primary"/> {soldier.name}</CardTitle>
-                <CardDescription>ת.ז.: {soldier.id}</CardDescription>
+                <CardDescription>מ.א.: {soldier.id}</CardDescription>
                 <CardDescription>פלוגה: {soldier.divisionName || "לא משויך"}</CardDescription>
             </div>
             <Dialog open={isEditSoldierDialogOpen} onOpenChange={setIsEditSoldierDialogOpen}>
