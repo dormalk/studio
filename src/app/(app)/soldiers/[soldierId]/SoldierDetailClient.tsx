@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Soldier, ArmoryItem, SoldierDocument, Division, ArmoryItemType } from "@/types";
@@ -21,14 +22,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Timestamp } from "firebase/firestore";
 import { uploadSoldierDocument, deleteSoldierDocument, updateSoldier } from "@/actions/soldierActions";
 import {
     addArmoryItem,
     scanArmoryItemImage,
     manageSoldierAssignmentToNonUniqueItem,
     getArmoryItemsBySoldierId,
-    getArmoryItems,
+    getArmoryItems, // Added import
     updateArmoryItem,
 } from "@/actions/armoryActions";
 import Link from "next/link";
@@ -279,7 +279,7 @@ export function SoldierDetailClient({
         } else if (addOrLinkDialogMode === 'link') {
             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""});
             setScannedArmoryImagePreview(null);
-            setSelectedItemTypeForSoldierPageIsUnique(null);
+            setSelectedItemTypeForSoldierPageIsUnique(null); // Reset type selection for create mode
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); 
             setLinkItemSearchTerm('');
         }
@@ -317,73 +317,69 @@ export function SoldierDetailClient({
   }
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    // Reset states at the beginning of a new file selection
-    setFileSizeError(null);
-    setSelectedFile(null);
-    setFileNameBase("");
-    setFileNameExt("");
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""; // Clear the actual input element to allow re-selection of the same file
-    }
+    setFileSizeError(null); // Reset error on new file selection attempt
 
     if (event.target.files && event.target.files.length > 0) {
-      let fileToProcess = event.target.files[0];
+        let fileToProcess = event.target.files[0];
+        const originalFileName = fileToProcess.name;
+        const nameParts = originalFileName.split('.');
+        const ext = nameParts.length > 1 ? "." + nameParts.pop()!.toLowerCase() : ""; // Ensure extension is lowercased
+        const base = nameParts.join('.');
 
-      // Early exit for non-image files that are already too large
-      if (!fileToProcess.type.startsWith('image/') && fileToProcess.size > MAX_FILE_SIZE_BYTES) {
-        setFileSizeError(`הקובץ גדול מדי (מעל ${MAX_FILE_SIZE_MB}MB). גודל מקסימלי מותר: ${MAX_FILE_SIZE_MB}MB.`);
-        return; 
-      }
-      
-      setIsUploading(true); // Indicate processing (compression or validation) starts
-
-      try {
-        // Attempt compression if it's an image and over the compression threshold
-        if (fileToProcess.type.startsWith('image/') && fileToProcess.size > IMAGE_COMPRESSION_THRESHOLD_BYTES) {
-          toast({ title: "מכווץ תמונה...", description: "הקובץ הנבחר גדול, מתבצע ניסיון לכווץ אותו." });
-          console.log(`Original file size for compression: ${fileToProcess.size / 1024 / 1024} MB`);
-          const options = {
-            maxSizeMB: 2, 
-            maxWidthOrHeight: 1920,
-            useWebWorker: true,
-            alwaysKeepResolution: false,
-          };
-          try {
-            const compressedFile = await imageCompression(fileToProcess, options);
-            console.log(`Compressed file size: ${compressedFile.size / 1024 / 1024} MB`);
-            toast({ title: "כיווץ הושלם", description: `גודל התמונה החדש: ${formatFileSize(compressedFile.size)}` });
-            fileToProcess = compressedFile;
-          } catch (compressionError: any) {
-            console.error('Error during image compression:', compressionError);
-            setFileSizeError("כיווץ התמונה נכשל. נסה קובץ קטן יותר או בפורמט אחר.");
-            // No need to set selectedFile or other file states as we are erroring out
-            return; // Stop further processing
-          }
-        }
-
-        // Final size check for the (potentially compressed) file
-        if (fileToProcess.size > MAX_FILE_SIZE_BYTES) {
-          setFileSizeError(`הקובץ עדיין גדול מדי (מעל ${MAX_FILE_SIZE_MB}MB) גם לאחר ניסיון כיווץ. גודל מקסימלי מותר: ${MAX_FILE_SIZE_MB}MB.`);
-          // selectedFile is already null from the top of the function
-          return; // Stop further processing
-        }
-
-        // If all checks pass, set the file for upload
-        setSelectedFile(fileToProcess);
-        const nameParts = fileToProcess.name.split('.');
-        const ext = nameParts.length > 1 ? "." + nameParts.pop() : "";
-        setFileNameBase(nameParts.join('.')); // Set the base name for editing (original base name)
+        // Set initial states based on the selected file *before* compression or size checks
+        setSelectedFile(fileToProcess); // Temporarily set, might be overwritten by compressed file or nulled on error
+        setFileNameBase(base); // Initialize with original base name
         setFileNameExt(ext);
-        // fileSizeError is already null from the top or cleared if previous error existed
-      } catch (error) { // Catch any other unexpected errors during this process
-        console.error("Unexpected error in handleFileChange:", error);
-        setFileSizeError("אירעה שגיאה לא צפויה בעת עיבוד הקובץ.");
-        // selectedFile is already null
-      } finally {
-        setIsUploading(false); // Processing finished (successfully or with error)
-      }
+        setIsUploading(true); // Start "processing" indicator
+
+        try {
+            if (fileToProcess.type.startsWith('image/') && fileToProcess.size > IMAGE_COMPRESSION_THRESHOLD_BYTES) {
+                toast({ title: "מכווץ תמונה...", description: "הקובץ הנבחר גדול, מתבצע ניסיון לכווץ אותו." });
+                const options = {
+                    maxSizeMB: 2,
+                    maxWidthOrHeight: 1920,
+                    useWebWorker: true,
+                    alwaysKeepResolution: false,
+                };
+                const compressedFile = await imageCompression(fileToProcess, options);
+                toast({ title: "כיווץ הושלם", description: `גודל התמונה החדש: ${formatFileSize(compressedFile.size)}` });
+                fileToProcess = compressedFile; // Use the compressed file for further checks
+                // Update selectedFile state with the compressed version
+                setSelectedFile(fileToProcess); 
+            }
+
+            if (fileToProcess.size > MAX_FILE_SIZE_BYTES) {
+                setFileSizeError(`הקובץ עדיין גדול מדי (מעל ${MAX_FILE_SIZE_MB}MB). גודל מקסימלי מותר: ${MAX_FILE_SIZE_MB}MB.`);
+                setSelectedFile(null); // Clear selected file due to error
+                setFileNameBase("");   // Clear base name
+                setFileNameExt("");    // Clear extension
+                if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input
+                setIsUploading(false);
+                return;
+            }
+            // If no errors, selectedFile is already fileToProcess (original or compressed)
+            // fileNameBase and fileNameExt are set from the original file.
+            // User can now edit fileNameBase.
+            setFileSizeError(null); // Ensure no error is shown if processing was successful
+        } catch (error: any) {
+            console.error("Error during file processing (compression/validation):", error);
+            setFileSizeError(error.message || "כיווץ התמונה נכשל או אירעה שגיאה בעיבוד הקובץ.");
+            setSelectedFile(null);
+            setFileNameBase("");
+            setFileNameExt("");
+            if (fileInputRef.current) fileInputRef.current.value = "";
+        } finally {
+            setIsUploading(false); // Stop "processing" indicator
+        }
+    } else {
+        // No file selected, or selection was cancelled. Reset all relevant states.
+        setSelectedFile(null);
+        setFileNameBase("");
+        setFileNameExt("");
+        setFileSizeError(null);
+        // No need to clear fileInputRef.current.value here as the browser handles it.
     }
-  };
+};
 
 
   const handleDocumentUpload = async () => {
@@ -395,21 +391,21 @@ export function SoldierDetailClient({
         toast({ variant: "destructive", title: "שגיאה", description: "שם הקובץ (ללא סיומת) הינו שדה חובה."});
         return;
     }
-    if (fileSizeError) { // Check if fileSizeError state is set
+    if (fileSizeError) {
         toast({ variant: "destructive", title: "שגיאת גודל קובץ", description: fileSizeError });
         return;
     }
 
     setIsUploading(true);
     const formData = new FormData();
-    // Create a new File object with the custom name but original type and content
     const finalFileName = fileNameBase.trim() + fileNameExt;
+    // Create a new File object with the custom name but original type and content
+    // Use selectedFile.name as a fallback if fileNameExt is somehow empty, though unlikely
     const fileWithCustomName = new File([selectedFile], finalFileName, { type: selectedFile.type });
     formData.append("file", fileWithCustomName);
-    // Send the desired display name separately if needed by the backend, 
-    // but the File object itself now has the custom name.
-    // The action already extracts file.name which will be the custom name.
-    // formData.append("customFileName", finalFileName); // This line becomes redundant if File object has the name
+    // The server action now uses file.name from the appended file, so customFileName might be redundant,
+    // but keeping it for clarity in the action or future needs.
+    formData.append("customFileName", finalFileName); 
 
     try {
       const newDocument = await uploadSoldierDocument(soldier.id, formData);
@@ -419,6 +415,7 @@ export function SoldierDetailClient({
         return { ...prev, documents: updatedDocs };
       });
       toast({ title: "הצלחה", description: `מסמך '${newDocument.fileName}' הועלה בהצלחה.` });
+      // Reset file input related states after successful upload
       setSelectedFile(null);
       setFileNameBase("");
       setFileNameExt("");
@@ -546,10 +543,10 @@ export function SoldierDetailClient({
         itemId: validatedValues.itemId,
         linkedSoldierId: soldier.id, // Automatically linked to the current soldier
         imageUrl: validatedValues.photoDataUri || undefined,
-        isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : true, // Default to true
+        isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : true,
         shelfNumber: (validatedValues.isStored && validatedValues.shelfNumber && validatedValues.shelfNumber.trim() !== "") ? validatedValues.shelfNumber.trim() : undefined,
       };
-       if (dataToSave.isStored === false) { // If not stored, it cannot have a shelf number
+       if (dataToSave.isStored === false) {
           dataToSave.shelfNumber = undefined;
        }
 
@@ -594,8 +591,8 @@ export function SoldierDetailClient({
     try {
         const updatesForItem: Partial<Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt' | '_currentSoldierAssignedQuantity' | 'assignments' | 'totalQuantity'>> = {
             linkedSoldierId: soldier.id,
-            isStored: false, // When linking to a soldier, it's typically issued (not stored)
-            shelfNumber: undefined, // Clear shelf number as it's issued
+            isStored: false, 
+            shelfNumber: undefined, 
         };
         
         await updateArmoryItem(itemIdToLink, updatesForItem);
@@ -636,9 +633,8 @@ export function SoldierDetailClient({
 
     try {
         await updateArmoryItem(armoryItemId, { 
-            linkedSoldierId: null, // Unlink
-            isStored: true,      // Set to stored
-            // shelfNumber will be handled by updateArmoryItem if isStored becomes true and shelfNumber is undefined
+            linkedSoldierId: null, 
+            isStored: true,      
         });
 
         setArmoryItemsForSoldier(prev => prev.filter(item => item.id !== armoryItemId));
@@ -724,7 +720,7 @@ export function SoldierDetailClient({
     }
   }
 
-  const formatDate = (timestampInput: string | Date | Timestamp | undefined): string => {
+  const formatDate = (timestampInput: string | Date | undefined): string => {
     if (!timestampInput) return 'לא זמין';
     let date: Date;
 
@@ -732,12 +728,7 @@ export function SoldierDetailClient({
       date = new Date(timestampInput);
     } else if (timestampInput instanceof Date) {
       date = timestampInput;
-    } else if (timestampInput && typeof (timestampInput as any).toDate === 'function') { 
-      date = (timestampInput as any).toDate();
-    } else if (typeof timestampInput === 'object' && 'seconds' in timestampInput && 'nanoseconds' in timestampInput) { 
-      date = new Date((timestampInput as any).seconds * 1000 + (timestampInput as any).nanoseconds / 1000000);
-    }
-     else {
+    }  else {
       console.warn("Invalid date input to formatDate (SoldierDetailClient):", timestampInput);
       return 'תאריך לא תקין';
     }
@@ -754,7 +745,7 @@ export function SoldierDetailClient({
         .filter(item => 
             item.isUniqueItem && 
             !item.linkedSoldierId &&
-            (!linkItemSearchTerm || (item.itemId || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.itemTypeName || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.shelfNumber && item.isStored && item.shelfNumber.toLowerCase().includes(linkItemSearchTerm.toLowerCase())))
+            (!linkItemSearchTerm || (item.itemId || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.itemTypeName || '').toLowerCase().includes(linkItemSearchTerm.toLowerCase()) || (item.isStored && item.shelfNumber && item.shelfNumber.toLowerCase().includes(linkItemSearchTerm.toLowerCase())))
         )
         .sort((a,b) => (a.itemTypeName || "").localeCompare(b.itemTypeName || "") || (a.itemId || "").localeCompare(b.itemId || ""));
   }, [allExistingArmoryItems, linkItemSearchTerm]);
@@ -849,7 +840,7 @@ export function SoldierDetailClient({
                     type="text"
                     value={fileNameBase}
                     onChange={(e) => setFileNameBase(e.target.value)}
-                    placeholder="הכנס שם קובץ"
+                    placeholder="הכנס שם קובץ בסיסי"
                     className="mt-1"
                 />
                  {selectedFile && (
@@ -949,10 +940,10 @@ export function SoldierDetailClient({
                                     linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
                                     setLinkItemSearchTerm('');
                                     addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""}); 
-                                } else { // mode === 'link'
+                                } else { 
                                     addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""});
                                     setScannedArmoryImagePreview(null);
-                                    setSelectedItemTypeForSoldierPageIsUnique(null); // Reset type selection for create mode
+                                    setSelectedItemTypeForSoldierPageIsUnique(null);
                                     linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); 
                                     setLinkItemSearchTerm('');
                                 }
@@ -1317,3 +1308,5 @@ export function SoldierDetailClient({
     </div>
   );
 }
+
+    
