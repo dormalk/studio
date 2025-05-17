@@ -32,8 +32,7 @@ export interface Soldier {
   divisionId: string;
   divisionName?: string; // Optional: for display purposes, denormalized
   documents?: SoldierDocument[];
-  // assignedUniqueArmoryItemsCount?: number;
-  assignedUniqueArmoryItemsDetails?: Array<{ id: string; itemTypeName: string; itemId: string; isStored?: boolean }>;
+  assignedUniqueArmoryItemsDetails?: Array<{ id: string; itemTypeName: string; itemId: string; isStored?: boolean; shelfNumber?: string; }>;
   assignedNonUniqueArmoryItemsSummary?: Array<{ itemTypeName: string; quantity: number }>;
 }
 
@@ -62,6 +61,7 @@ export interface ArmoryItem {
   linkedSoldierName?: string; // Optional: Denormalized for display
   linkedSoldierDivisionName?: string; // Optional: Denormalized division name of the linked soldier
   isStored?: boolean; // Optional: True if the unique item is currently stored, false/undefined if issued.
+  shelfNumber?: string; // Optional: Shelf number for unique items
 
   // Fields for NON-UNIQUE items
   totalQuantity?: number; // Total stock of this non-unique item: Mandatory if isUniqueItem is false

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle, Camera, PlusCircle, MinusCircle, Edit, Link2, Archive, PackageCheck, PackageX } from "lucide-react";
+import { Upload, FileText, Download, Trash2, PackageSearch, RefreshCw, Edit3, UserCircle, Camera, PlusCircle, MinusCircle, Edit, Link2, Archive, PackageCheck, PackageX, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -72,6 +72,7 @@ const armoryItemBaseSchemaOnSoldierPage = z.object({
   itemId: z.string().optional(), // Serial number
   photoDataUri: z.string().optional(),
   isStored: z.boolean().optional(),
+  shelfNumber: z.string().optional(),
 });
 
 const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRefine((data, ctx) => {
@@ -154,7 +155,7 @@ export function SoldierDetailClient({
 
   const addUniqueArmoryItemForm = useForm<ArmoryItemFormDataOnSoldierPage>({
     resolver: zodResolver(armoryItemSchemaOnSoldierPage),
-    defaultValues: { itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false},
+    defaultValues: { itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""},
   });
   
   const linkExistingItemForm = useForm<LinkExistingItemFormData>({
@@ -234,7 +235,7 @@ export function SoldierDetailClient({
 
   useEffect(() => {
     if (!isAddOrLinkUniqueArmoryItemDialogOpen) {
-      addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false});
+      addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""});
       linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
       setScannedArmoryImagePreview(null);
       setSelectedItemTypeForSoldierPageIsUnique(null);
@@ -246,9 +247,10 @@ export function SoldierDetailClient({
     } else {
         if (addOrLinkDialogMode === 'create') {
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
+             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""}); // Ensure create form also resets
         } else if (addOrLinkDialogMode === 'link') {
-            addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false});
-            linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); // Reset link form too
+            addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""});
+            linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); 
             setScannedArmoryImagePreview(null);
             setSelectedItemTypeForSoldierPageIsUnique(null);
             setLinkItemSearchTerm('');
@@ -436,6 +438,7 @@ export function SoldierDetailClient({
         linkedSoldierId: soldier.id,
         imageUrl: validatedValues.photoDataUri || undefined,
         isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : false,
+        shelfNumber: validatedValues.shelfNumber || undefined,
       };
 
       const newItemServer = await addArmoryItem(dataToSave);
@@ -451,6 +454,7 @@ export function SoldierDetailClient({
         linkedSoldierDivisionName: soldier.divisionName,
         imageUrl: newItemServer.imageUrl,
         isStored: newItemServer.isStored,
+        shelfNumber: newItemServer.shelfNumber,
       };
 
       setArmoryItemsForSoldier(prev => [...prev, newItemForState]);
@@ -473,21 +477,10 @@ export function SoldierDetailClient({
         toast({variant: "destructive", title: "שגיאה", description: "הפריט הנבחר אינו פריט ייחודי פנוי."});
         return;
     }
-    // Get the isStored value from the form - it should be present in the create form, but might not be if we only link
-    const isStoredValue = addUniqueArmoryItemForm.getValues("isStored");
-
-
+    
     try {
-        // Pass isStored to the update action if the dialog mode implies creating/setting it
-        // For linking existing, the server action will decide if it should be updated based on what's passed.
-        // Here, we assume if we are in link mode and user interacted with isStored checkbox, we send that.
-        // Let's assume for linking existing, the isStored status of the item itself doesn't change unless explicitly set in a separate UI.
-        // However, since the form is shared, we might pass the current isStored from the form
         await updateArmoryItem(itemIdToLink, { 
             linkedSoldierId: soldier.id,
-            // If we want to allow changing isStored status when linking, we'd pass:
-            // isStored: addOrLinkDialogMode === 'create' ? addUniqueArmoryItemForm.getValues("isStored") : itemToLink.isStored 
-            // For now, let's assume linking doesn't change 'isStored' unless we add a checkbox to the 'link' mode too
         });
         
         const updatedItemForSoldierList: ArmoryItem = {
@@ -495,7 +488,6 @@ export function SoldierDetailClient({
             linkedSoldierId: soldier.id,
             linkedSoldierName: soldier.name,
             linkedSoldierDivisionName: soldier.divisionName,
-            // isStored will be whatever it was on the item itself
         };
         setArmoryItemsForSoldier(prev => [...prev, updatedItemForSoldierList]);
 
@@ -823,7 +815,8 @@ export function SoldierDetailClient({
                                                             setSelectedItemTypeForSoldierPageIsUnique(null);
                                                             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
                                                         } else if (type && type.isUnique) {
-                                                            addUniqueArmoryItemForm.setValue("isStored", false); // Default for new unique item
+                                                            addUniqueArmoryItemForm.setValue("isStored", false); 
+                                                            addUniqueArmoryItemForm.setValue("shelfNumber", "");
                                                         }
                                                         addUniqueArmoryItemForm.trigger();
                                                     }}
@@ -863,6 +856,11 @@ export function SoldierDetailClient({
                                                 )}
                                             />
                                             <Label htmlFor="isStoredNewItemSoldierPage" className="text-sm font-normal">הפריט מאוחסן</Label>
+                                        </div>
+                                        <div>
+                                            <Label htmlFor="shelfNumberSoldierPage">מספר מדף (אופציונלי)</Label>
+                                            <Input id="shelfNumberSoldierPage" {...addUniqueArmoryItemForm.register("shelfNumber")} />
+                                            {addUniqueArmoryItemForm.formState.errors.shelfNumber && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.shelfNumber.message}</p>}
                                         </div>
                                       </>
                                     )}
@@ -911,7 +909,7 @@ export function SoldierDetailClient({
                                                     <SelectContent>
                                                         <div className="p-2 sticky top-0 bg-background z-10">
                                                             <Input 
-                                                                placeholder="סנן לפי סוג/מספר סריאלי..."
+                                                                placeholder="סנן לפי סוג/מספר סריאלי/מדף..."
                                                                 value={linkItemSearchTerm} 
                                                                 onChange={(e) => {
                                                                     e.stopPropagation();
@@ -926,7 +924,7 @@ export function SoldierDetailClient({
                                                         ) : (
                                                             availableUniqueItemsToLink.map(item => (
                                                                 <SelectItem key={item.id} value={item.id}>
-                                                                    {item.itemTypeName} - {item.itemId} {item.isStored ? "(מאוחסן)" : ""}
+                                                                    {item.itemTypeName} - {item.itemId} {item.shelfNumber ? `(מדף: ${item.shelfNumber})` : ""} {item.isStored ? "(מאוחסן)" : ""}
                                                                 </SelectItem>
                                                             ))
                                                         )}
@@ -967,6 +965,12 @@ export function SoldierDetailClient({
                                 {item.isStored ? <PackageX className="w-3.5 h-3.5 me-1.5 text-orange-500" /> : <PackageCheck className="w-3.5 h-3.5 me-1.5 text-green-600" />}
                                 סטטוס: {item.isStored ? "מאוחסן" : "מונפק"}
                             </CardDescription>
+                            {item.shelfNumber && (
+                                <CardDescription className="flex items-center">
+                                    <MapPin className="w-3.5 h-3.5 me-1.5 text-muted-foreground" />
+                                    מדף: {item.shelfNumber}
+                                </CardDescription>
+                            )}
                         </CardHeader>
                         <CardFooter>
                             <Button variant="outline" size="sm" asChild className="w-full">
@@ -1111,3 +1115,4 @@ export function SoldierDetailClient({
     </div>
   );
 }
+
