@@ -87,7 +87,6 @@ const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRef
           message: "מספר סריאלי הינו שדה חובה עבור פריט ייחודי",
         });
       }
-       // Validation: If not stored, shelf number cannot be entered.
       if (data.isStored === false && data.shelfNumber && data.shelfNumber.trim() !== "") {
         ctx.addIssue({
             code: z.ZodIssueCode.custom,
@@ -158,6 +157,8 @@ export function SoldierDetailClient({
 
   const [addOrLinkDialogMode, setAddOrLinkDialogMode] = useState<'create' | 'link'>('create');
   const [linkItemSearchTerm, setLinkItemSearchTerm] = useState('');
+  const linkItemSearchInputRef = useRef<HTMLInputElement>(null);
+
 
   const soldierDetailsForm = useForm<SoldierDetailsFormData>({
     resolver: zodResolver(soldierDetailsSchema),
@@ -263,22 +264,16 @@ export function SoldierDetailClient({
 
  useEffect(() => {
     if (!isAddOrLinkUniqueArmoryItemDialogOpen) {
-      // Reset create form
       addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""});
       setScannedArmoryImagePreview(null);
       setSelectedItemTypeForSoldierPageIsUnique(null);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
       if (armoryItemFileInputRef.current) armoryItemFileInputRef.current.value = "";
-      
-      // Reset link form
       linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
       setLinkItemSearchTerm('');
-      
-      // Default dialog mode
       setAddOrLinkDialogMode('create'); 
       (window as any).__SOLDIER_PAGE_ARMORY_DIALOG_MODE__ = 'create';
     } else {
-        // When dialog opens, or mode changes, reset the other form
         if (addOrLinkDialogMode === 'create') {
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
             setLinkItemSearchTerm('');
@@ -286,6 +281,8 @@ export function SoldierDetailClient({
             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""});
             setScannedArmoryImagePreview(null);
             setSelectedItemTypeForSoldierPageIsUnique(null);
+            linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
+            setLinkItemSearchTerm('');
         }
     }
   }, [isAddOrLinkUniqueArmoryItemDialogOpen, addOrLinkDialogMode, addUniqueArmoryItemForm, linkExistingItemForm]);
@@ -323,66 +320,58 @@ export function SoldierDetailClient({
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || event.target.files.length === 0) {
-        // No file selected or selection cancelled
         setSelectedFile(null);
         setFileNameBase("");
         setFileNameExt("");
         setFileSizeError(null);
-        if (fileInputRef.current) { // Clear the actual file input
-          fileInputRef.current.value = "";
-        }
+        if (fileInputRef.current) fileInputRef.current.value = "";
         return;
     }
 
     let fileToProcess = event.target.files[0];
     const originalFileName = fileToProcess.name;
     
-    setIsUploading(true); // Indicate processing started
-    setFileSizeError(null); // Reset previous errors
-    setSelectedFile(null); // Reset selected file while processing new one
+    setIsUploading(true); 
+    setFileSizeError(null); 
+    setSelectedFile(null); 
     setFileNameBase("");
     setFileNameExt("");
 
 
     try {
-        // Attempt compression if it's an image and over threshold
         if (fileToProcess.type.startsWith('image/') && fileToProcess.size > IMAGE_COMPRESSION_THRESHOLD_BYTES) {
             toast({ title: "מכווץ תמונה...", description: "הקובץ הנבחר גדול, מתבצע ניסיון לכווץ אותו." });
             const options = {
-                maxSizeMB: 1, // Target size for compression
+                maxSizeMB: 2, 
                 maxWidthOrHeight: 1920,
                 useWebWorker: true,
                 alwaysKeepResolution: false,
             };
-            const compressedFile = await imageCompression(fileToProcess, options);
-            toast({ title: "כיווץ הושלם", description: `גודל התמונה החדש: ${formatFileSize(compressedFile.size)}` });
-            fileToProcess = compressedFile; 
+            fileToProcess = await imageCompression(fileToProcess, options);
+            toast({ title: "כיווץ הושלם", description: `גודל התמונה החדש: ${formatFileSize(fileToProcess.size)}` });
         }
 
-        // Final check against absolute max size
         if (fileToProcess.size > MAX_FILE_SIZE_BYTES) {
-            setFileSizeError(`הקובץ עדיין גדול מדי (לאחר ניסיון כיווץ, אם רלוונטי). גודל מקסימלי מותר: ${MAX_FILE_SIZE_MB}MB.`);
-            // Don't set selectedFile here, let it remain null
-            if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input if error
+            setFileSizeError(`הקובץ עדיין גדול מדי (מקסימום ${MAX_FILE_SIZE_MB}MB).`);
+            if (fileInputRef.current) fileInputRef.current.value = ""; 
+            setIsUploading(false);
             return;
         }
         
-        // If all checks pass
         const nameParts = originalFileName.split('.');
         const ext = nameParts.length > 1 ? "." + nameParts.pop()!.toLowerCase() : "";
         
         setSelectedFile(fileToProcess);
-        setFileNameBase(""); // Set to empty for user to fill
+        setFileNameBase(""); 
         setFileNameExt(ext);
-        setFileSizeError(null); // Ensure error is cleared if previously set
+        setFileSizeError(null);
 
     } catch (error: any) {
         console.error("Error during file processing (compression/validation):", error);
         setFileSizeError(error.message || "כיווץ התמונה נכשל או אירעה שגיאה בעיבוד הקובץ.");
-        // Don't set selectedFile here
-        if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input if error
+        if (fileInputRef.current) fileInputRef.current.value = ""; 
     } finally {
-        setIsUploading(false); // Indicate processing finished
+        setIsUploading(false); 
     }
 };
 
@@ -404,7 +393,6 @@ export function SoldierDetailClient({
     setIsUploading(true);
     const formData = new FormData();
     const finalFileName = fileNameBase.trim() + fileNameExt;
-    // Use selectedFile (which might be the compressed one)
     const fileToUpload = new File([selectedFile], finalFileName, { type: selectedFile.type });
     formData.append("file", fileToUpload);
     formData.append("customFileName", finalFileName); 
@@ -636,7 +624,7 @@ export function SoldierDetailClient({
         await updateArmoryItem(armoryItemId, { 
             linkedSoldierId: null, 
             isStored: true,      
-            shelfNumber: itemToUnlink.shelfNumber // Keep shelf number if it was stored
+            // shelfNumber: itemToUnlink.shelfNumber // Keep shelf number if it was stored - or clear it if it should be set by armory manager
         });
 
         setArmoryItemsForSoldier(prev => prev.filter(item => item.id !== armoryItemId));
@@ -1022,7 +1010,7 @@ export function SoldierDetailClient({
                                                 render={({ field }) => (
                                                     <Checkbox
                                                         id="isStoredNewItemSoldierPage"
-                                                        checked={!!field.value} 
+                                                        checked={field.value === undefined ? true : field.value}
                                                         onCheckedChange={(checked) => {
                                                             field.onChange(checked);
                                                             if (checked === false) {
@@ -1088,9 +1076,16 @@ export function SoldierDetailClient({
                                                     <SelectTrigger id="existingArmoryItemIdToLinkSelect">
                                                         <SelectValue placeholder="בחר פריט לקשירה..." />
                                                     </SelectTrigger>
-                                                    <SelectContent>
+                                                    <SelectContent 
+                                                        onPointerDownOutside={(event) => {
+                                                            if (linkItemSearchInputRef.current && linkItemSearchInputRef.current.contains(event.target as Node)) {
+                                                              event.preventDefault();
+                                                            }
+                                                          }}
+                                                    >
                                                         <div className="p-2 sticky top-0 bg-background z-10">
                                                             <Input 
+                                                                ref={linkItemSearchInputRef}
                                                                 placeholder="סנן לפי סוג/מספר סריאלי/מדף..."
                                                                 value={linkItemSearchTerm} 
                                                                 onChange={(e) => {

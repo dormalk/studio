@@ -68,7 +68,7 @@ const armoryItemBaseSchema = z.object({
   totalQuantity: z.number().int().positive("כמות חייבת להיות מספר חיובי").optional(),
   photoDataUri: z.string().optional(),
   linkedSoldierId: z.string().optional(),
-  isStored: z.boolean().optional().default(true), 
+  isStored: z.boolean().optional().default(false), 
   shelfNumber: z.string().optional(),
 });
 
@@ -149,6 +149,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
   const [selectedItemTypeIsUnique, setSelectedItemTypeIsUnique] = useState<boolean | null>(null);
 
   const [soldierFilterInDialog, setSoldierFilterInDialog] = useState("");
+  const soldierFilterInputRef = useRef<HTMLInputElement>(null);
 
 
   const [isItemTypeDialogOpen, setIsItemTypeDialogOpen] = useState(false);
@@ -197,7 +198,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
       if (type && type.isUnique) {
         const currentIsStored = itemForm.getValues("isStored");
         itemForm.setValue("isStored", currentIsStored === undefined ? true : currentIsStored); 
-        if (currentIsStored === false || currentIsStored === undefined) {
+        if ((currentIsStored === false || currentIsStored === undefined) && !itemFormIsStored) {
             itemForm.setValue("shelfNumber", "");
         }
       } else {
@@ -811,7 +812,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                                     itemForm.setValue("totalQuantity", undefined);
                                     const currentIsStored = itemForm.getValues("isStored");
                                     itemForm.setValue("isStored", currentIsStored === undefined ? true : currentIsStored); 
-                                    if (currentIsStored === false || currentIsStored === undefined) {
+                                    if ((currentIsStored === false || currentIsStored === undefined) && !itemFormIsStored) {
                                         itemForm.setValue("shelfNumber", "");
                                     }
                                 } else {
@@ -856,7 +857,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                             render={({ field }) => (
                                 <Checkbox
                                     id="isStoredItem"
-                                    checked={field.value}
+                                    checked={field.value === undefined ? true : field.value}
                                     onCheckedChange={(checked) => {
                                         field.onChange(checked);
                                         if (checked === false) {
@@ -874,7 +875,7 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                     {itemFormIsStored && selectedItemTypeIsUnique === true && (
                         <div>
                             <Label htmlFor="shelfNumber">מספר מדף (אופציונלי)</Label>
-                            <Input id="shelfNumber" {...itemForm.register("shelfNumber")} />
+                            <Input id="shelfNumber" {...itemForm.register("shelfNumber")} disabled={!itemFormIsStored}/>
                             {itemForm.formState.errors.shelfNumber && <p className="text-destructive text-sm">{itemForm.formState.errors.shelfNumber.message}</p>}
                         </div>
                     )}
@@ -894,9 +895,16 @@ export function ArmoryManagementClient({ initialArmoryItems, initialArmoryItemTy
                             <SelectTrigger id="linkedSoldierIdSelect">
                               <SelectValue placeholder="בחר חייל..." />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent
+                               onPointerDownOutside={(event) => {
+                                if (soldierFilterInputRef.current && soldierFilterInputRef.current.contains(event.target as Node)) {
+                                  event.preventDefault();
+                                }
+                              }}
+                            >
                                 <div className="p-2 sticky top-0 bg-background z-10">
                                     <Input
+                                        ref={soldierFilterInputRef}
                                         placeholder="סנן חיילים..."
                                         value={soldierFilterInDialog}
                                         onChange={(e) => {
