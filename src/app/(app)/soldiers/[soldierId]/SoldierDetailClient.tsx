@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { Soldier, ArmoryItem, SoldierDocument, Division, ArmoryItemType } from "@/types";
@@ -51,6 +50,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getDivisions } from "@/actions/divisionActions";
 import { Checkbox } from "@/components/ui/checkbox";
+import imageCompression from 'browser-image-compression';
 
 
 interface SoldierDetailClientProps {
@@ -94,8 +94,6 @@ const armoryItemSchemaOnSoldierPage = armoryItemBaseSchemaOnSoldierPage.superRef
             message: "לא ניתן להזין מספר מדף אם הפריט אינו מאוחסן",
         });
       }
-      // Validation for isStored=false && linkedSoldierId=null is implicitly handled
-      // because items added from this page are always linked to the current soldier.
     }
   }
 });
@@ -117,6 +115,7 @@ const linkExistingItemSchema = z.object({
 });
 type LinkExistingItemFormData = z.infer<typeof linkExistingItemSchema>;
 
+const IMAGE_COMPRESSION_THRESHOLD_BYTES = 2 * 1024 * 1024; // 2MB for starting compression
 const MAX_FILE_SIZE_MB = 3;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
@@ -247,7 +246,7 @@ export function SoldierDetailClient({
       if (type && type.isUnique) {
         const currentIsStored = addUniqueArmoryItemForm.getValues("isStored");
         addUniqueArmoryItemForm.setValue("isStored", currentIsStored === undefined ? true : currentIsStored); 
-        if (currentIsStored === false) {
+        if (currentIsStored === false) { 
             addUniqueArmoryItemForm.setValue("shelfNumber", "");
         }
       } else {
@@ -317,30 +316,72 @@ export function SoldierDetailClient({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setFileSizeError(null); // Clear previous size error
-    if (event.target.files && event.target.files.length > 0) {
-        const file = event.target.files[0];
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    // Reset states at the beginning of a new file selection
+    setFileSizeError(null);
+    setSelectedFile(null);
+    setFileNameBase("");
+    setFileNameExt("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""; // Clear the actual input element to allow re-selection of the same file
+    }
 
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-            setFileSizeError(`הקובץ גדול מדי. גודל מקסימלי: ${MAX_FILE_SIZE_MB}MB.`);
-            setSelectedFile(null);
-            setFileNameBase("");
-            setFileNameExt("");
-            if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input
-            return;
+    if (event.target.files && event.target.files.length > 0) {
+      let fileToProcess = event.target.files[0];
+
+      // Early exit for non-image files that are already too large
+      if (!fileToProcess.type.startsWith('image/') && fileToProcess.size > MAX_FILE_SIZE_BYTES) {
+        setFileSizeError(`הקובץ גדול מדי (מעל ${MAX_FILE_SIZE_MB}MB). גודל מקסימלי מותר: ${MAX_FILE_SIZE_MB}MB.`);
+        return; 
+      }
+      
+      setIsUploading(true); // Indicate processing (compression or validation) starts
+
+      try {
+        // Attempt compression if it's an image and over the compression threshold
+        if (fileToProcess.type.startsWith('image/') && fileToProcess.size > IMAGE_COMPRESSION_THRESHOLD_BYTES) {
+          toast({ title: "מכווץ תמונה...", description: "הקובץ הנבחר גדול, מתבצע ניסיון לכווץ אותו." });
+          console.log(`Original file size for compression: ${fileToProcess.size / 1024 / 1024} MB`);
+          const options = {
+            maxSizeMB: 2, 
+            maxWidthOrHeight: 1920,
+            useWebWorker: true,
+            alwaysKeepResolution: false,
+          };
+          try {
+            const compressedFile = await imageCompression(fileToProcess, options);
+            console.log(`Compressed file size: ${compressedFile.size / 1024 / 1024} MB`);
+            toast({ title: "כיווץ הושלם", description: `גודל התמונה החדש: ${formatFileSize(compressedFile.size)}` });
+            fileToProcess = compressedFile;
+          } catch (compressionError: any) {
+            console.error('Error during image compression:', compressionError);
+            setFileSizeError("כיווץ התמונה נכשל. נסה קובץ קטן יותר או בפורמט אחר.");
+            // No need to set selectedFile or other file states as we are erroring out
+            return; // Stop further processing
+          }
         }
 
-        setSelectedFile(file);
-        const nameParts = file.name.split('.');
+        // Final size check for the (potentially compressed) file
+        if (fileToProcess.size > MAX_FILE_SIZE_BYTES) {
+          setFileSizeError(`הקובץ עדיין גדול מדי (מעל ${MAX_FILE_SIZE_MB}MB) גם לאחר ניסיון כיווץ. גודל מקסימלי מותר: ${MAX_FILE_SIZE_MB}MB.`);
+          // selectedFile is already null from the top of the function
+          return; // Stop further processing
+        }
+
+        // If all checks pass, set the file for upload
+        setSelectedFile(fileToProcess);
+        const nameParts = fileToProcess.name.split('.');
         const ext = nameParts.length > 1 ? "." + nameParts.pop() : "";
-        // const base = nameParts.join('.'); // Original base name
-        setFileNameBase(""); // Start with empty editable base name
+        setFileNameBase(nameParts.join('.')); // Set the base name for editing (original base name)
         setFileNameExt(ext);
-    } else {
-        setSelectedFile(null);
-        setFileNameBase("");
-        setFileNameExt("");
+        // fileSizeError is already null from the top or cleared if previous error existed
+      } catch (error) { // Catch any other unexpected errors during this process
+        console.error("Unexpected error in handleFileChange:", error);
+        setFileSizeError("אירעה שגיאה לא צפויה בעת עיבוד הקובץ.");
+        // selectedFile is already null
+      } finally {
+        setIsUploading(false); // Processing finished (successfully or with error)
+      }
     }
   };
 
@@ -354,16 +395,21 @@ export function SoldierDetailClient({
         toast({ variant: "destructive", title: "שגיאה", description: "שם הקובץ (ללא סיומת) הינו שדה חובה."});
         return;
     }
-    if (fileSizeError) {
+    if (fileSizeError) { // Check if fileSizeError state is set
         toast({ variant: "destructive", title: "שגיאת גודל קובץ", description: fileSizeError });
         return;
     }
 
     setIsUploading(true);
     const formData = new FormData();
-    formData.append("file", selectedFile);
+    // Create a new File object with the custom name but original type and content
     const finalFileName = fileNameBase.trim() + fileNameExt;
-    formData.append("customFileName", finalFileName);
+    const fileWithCustomName = new File([selectedFile], finalFileName, { type: selectedFile.type });
+    formData.append("file", fileWithCustomName);
+    // Send the desired display name separately if needed by the backend, 
+    // but the File object itself now has the custom name.
+    // The action already extracts file.name which will be the custom name.
+    // formData.append("customFileName", finalFileName); // This line becomes redundant if File object has the name
 
     try {
       const newDocument = await uploadSoldierDocument(soldier.id, formData);
@@ -498,12 +544,14 @@ export function SoldierDetailClient({
         itemTypeId: validatedValues.itemTypeId,
         isUniqueItem: true, 
         itemId: validatedValues.itemId,
-        linkedSoldierId: soldier.id,
+        linkedSoldierId: soldier.id, // Automatically linked to the current soldier
         imageUrl: validatedValues.photoDataUri || undefined,
-        isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : true,
+        isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : true, // Default to true
         shelfNumber: (validatedValues.isStored && validatedValues.shelfNumber && validatedValues.shelfNumber.trim() !== "") ? validatedValues.shelfNumber.trim() : undefined,
       };
-       if (dataToSave.isStored === false) dataToSave.shelfNumber = undefined;
+       if (dataToSave.isStored === false) { // If not stored, it cannot have a shelf number
+          dataToSave.shelfNumber = undefined;
+       }
 
 
       const newItemServer = await addArmoryItem(dataToSave);
@@ -544,14 +592,12 @@ export function SoldierDetailClient({
     }
     
     try {
-        const updatesForItem: Partial<ArmoryItem> = {
+        const updatesForItem: Partial<Omit<ArmoryItem, 'id' | 'itemTypeName' | 'linkedSoldierName' | 'linkedSoldierDivisionName' | 'createdAt' | '_currentSoldierAssignedQuantity' | 'assignments' | 'totalQuantity'>> = {
             linkedSoldierId: soldier.id,
+            isStored: false, // When linking to a soldier, it's typically issued (not stored)
+            shelfNumber: undefined, // Clear shelf number as it's issued
         };
         
-        updatesForItem.isStored = false; 
-        updatesForItem.shelfNumber = undefined;
-
-
         await updateArmoryItem(itemIdToLink, updatesForItem);
         
         const updatedItemForSoldierList: ArmoryItem = {
@@ -585,10 +631,14 @@ export function SoldierDetailClient({
 
   const handleUnlinkUniqueItemAndStore = async (armoryItemId: string) => {
     if (!soldier) return;
+    const itemToUnlink = armoryItemsForSoldier.find(item => item.id === armoryItemId);
+    if (!itemToUnlink) return;
+
     try {
         await updateArmoryItem(armoryItemId, { 
-            linkedSoldierId: null,
-            isStored: true 
+            linkedSoldierId: null, // Unlink
+            isStored: true,      // Set to stored
+            // shelfNumber will be handled by updateArmoryItem if isStored becomes true and shelfNumber is undefined
         });
 
         setArmoryItemsForSoldier(prev => prev.filter(item => item.id !== armoryItemId));
@@ -605,7 +655,7 @@ export function SoldierDetailClient({
             : item
         ));
 
-        toast({ title: "הצלחה", description: "הפריט נותק מהחייל ואוחסן." });
+        toast({ title: "הצלחה", description: `הפריט "${itemToUnlink.itemTypeName} (${itemToUnlink.itemId})" נותק מהחייל ואוחסן.` });
     } catch (error: any) {
         toast({ variant: "destructive", title: "שגיאה", description: error.message || "ביטול שיוך ואחסון הפריט נכשל." });
     }
@@ -899,10 +949,10 @@ export function SoldierDetailClient({
                                     linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
                                     setLinkItemSearchTerm('');
                                     addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""}); 
-                                } else {
+                                } else { // mode === 'link'
                                     addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: true, shelfNumber: ""});
                                     setScannedArmoryImagePreview(null);
-                                    setSelectedItemTypeForSoldierPageIsUnique(null);
+                                    setSelectedItemTypeForSoldierPageIsUnique(null); // Reset type selection for create mode
                                     linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); 
                                     setLinkItemSearchTerm('');
                                 }
@@ -991,7 +1041,9 @@ export function SoldierDetailClient({
                                         {addUniqueFormIsStored && selectedItemTypeForSoldierPageIsUnique === true && (
                                             <div>
                                                 <Label htmlFor="shelfNumberSoldierPage">מספר מדף (אופציונלי)</Label>
-                                                <Input id="shelfNumberSoldierPage" {...addUniqueArmoryItemForm.register("shelfNumber")} />
+                                                <Input id="shelfNumberSoldierPage" {...addUniqueArmoryItemForm.register("shelfNumber")} 
+                                                    disabled={!addUniqueFormIsStored}
+                                                />
                                                 {addUniqueArmoryItemForm.formState.errors.shelfNumber && <p className="text-destructive text-sm">{addUniqueArmoryItemForm.formState.errors.shelfNumber.message}</p>}
                                             </div>
                                         )}
@@ -1265,5 +1317,3 @@ export function SoldierDetailClient({
     </div>
   );
 }
-
-    

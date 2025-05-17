@@ -5,7 +5,7 @@ import type { Soldier, Division } from "@/types";
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"; // Added CardFooter
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlusCircle, Trash2, Edit3, Eye, RefreshCw, FileUp, Package, Archive, FileText } from "lucide-react";
@@ -132,7 +132,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
       if (editingSoldier) {
         await updateSoldier(editingSoldier.id, {name: values.name, divisionId: values.divisionId});
          updatedOrNewSoldier = {
-            ...editingSoldier, // Keep existing documents and armory summaries
+            ...editingSoldier, 
             name: values.name,
             divisionId: values.divisionId,
             divisionName,
@@ -145,7 +145,6 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             ...newSoldierServerData,
             divisionName,
             documents: newSoldierServerData.documents || [],
-            // Initialize armory summary fields for new soldiers
             assignedUniqueArmoryItemsDetails: [],
             assignedNonUniqueArmoryItemsSummary: [],
         };
@@ -398,7 +397,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             }
           }}
         >
-          <DialogContent className="sm:max-w-[625px]">
+          <DialogContent className="sm:max-w-[425px]"> {/* Simplified width for this dialog */}
             <DialogHeader>
               <DialogTitle>{editingSoldier ? "ערוך פרטי חייל" : "הוסף חייל חדש"}</DialogTitle>
               <DialogDescription>
@@ -585,3 +584,4 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
   );
 }
 
+    
