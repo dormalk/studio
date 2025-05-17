@@ -131,7 +131,8 @@ export function SoldierDetailClient({
 
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [editableFileName, setEditableFileName] = useState<string>("");
+  const [fileNameBase, setFileNameBase] = useState<string>("");
+  const [fileNameExt, setFileNameExt] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const armoryItemFileInputRef = useRef<HTMLInputElement>(null);
@@ -237,7 +238,12 @@ export function SoldierDetailClient({
       const isUnique = type ? type.isUnique : null;
       setSelectedItemTypeForSoldierPageIsUnique(isUnique);
       (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = isUnique;
-      if (isUnique === true && addUniqueArmoryItemForm.getValues("isStored") === false) {
+      if (type && type.isUnique) {
+        const currentIsStored = addUniqueArmoryItemForm.getValues("isStored");
+        if (currentIsStored === false) {
+            addUniqueArmoryItemForm.setValue("shelfNumber", "");
+        }
+      } else {
         addUniqueArmoryItemForm.setValue("shelfNumber", "");
       }
     } else {
@@ -262,12 +268,13 @@ export function SoldierDetailClient({
     } else {
         if (addOrLinkDialogMode === 'create') {
             linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" });
-             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""}); 
+            setLinkItemSearchTerm('');
+            addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""}); 
         } else if (addOrLinkDialogMode === 'link') {
             addUniqueArmoryItemForm.reset({ itemTypeId: "", itemId: "", photoDataUri: undefined, isStored: false, shelfNumber: ""});
-            linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); 
             setScannedArmoryImagePreview(null);
             setSelectedItemTypeForSoldierPageIsUnique(null);
+            linkExistingItemForm.reset({ existingArmoryItemIdToLink: "" }); 
             setLinkItemSearchTerm('');
         }
     }
@@ -298,10 +305,17 @@ export function SoldierDetailClient({
     if (event.target.files && event.target.files.length > 0) {
         const file = event.target.files[0];
         setSelectedFile(file);
-        setEditableFileName(file.name);
+        
+        const nameParts = file.name.split('.');
+        const ext = nameParts.length > 1 ? "." + nameParts.pop() : "";
+        // const base = nameParts.join('.'); // Not needed if we start empty
+        
+        setFileNameBase(""); // Default to empty as requested
+        setFileNameExt(ext);
     } else {
         setSelectedFile(null);
-        setEditableFileName("");
+        setFileNameBase("");
+        setFileNameExt("");
     }
   };
 
@@ -310,15 +324,15 @@ export function SoldierDetailClient({
         toast({ variant: "destructive", title: "שגיאה", description: "יש לבחור חייל וקובץ להעלאה."});
         return;
     }
-    if (!editableFileName.trim()) {
-        toast({ variant: "destructive", title: "שגיאה", description: "שם הקובץ אינו יכול להיות ריק."});
+    if (!fileNameBase.trim()) {
+        toast({ variant: "destructive", title: "שגיאה", description: "שם הקובץ (ללא סיומת) הינו שדה חובה."});
         return;
     }
     setIsUploading(true);
     const formData = new FormData();
     formData.append("file", selectedFile);
-    formData.append("customFileName", editableFileName.trim());
-
+    const finalFileName = fileNameBase.trim() + fileNameExt;
+    formData.append("customFileName", finalFileName);
 
     try {
       const newDocument = await uploadSoldierDocument(soldier.id, formData);
@@ -329,7 +343,8 @@ export function SoldierDetailClient({
       });
       toast({ title: "הצלחה", description: `מסמך '${newDocument.fileName}' הועלה בהצלחה.` });
       setSelectedFile(null);
-      setEditableFileName("");
+      setFileNameBase("");
+      setFileNameExt("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
       console.error("--- CLIENT-SIDE ERROR (handleDocumentUpload SoldierDetailClient) ---");
@@ -453,7 +468,7 @@ export function SoldierDetailClient({
         linkedSoldierId: soldier.id,
         imageUrl: validatedValues.photoDataUri || undefined,
         isStored: validatedValues.isStored !== undefined ? validatedValues.isStored : false,
-        shelfNumber: (validatedValues.isStored && validatedValues.shelfNumber) ? validatedValues.shelfNumber : undefined,
+        shelfNumber: (validatedValues.isStored && validatedValues.shelfNumber && validatedValues.shelfNumber.trim() !== "") ? validatedValues.shelfNumber.trim() : undefined,
       };
 
       const newItemServer = await addArmoryItem(dataToSave);
@@ -494,11 +509,19 @@ export function SoldierDetailClient({
     }
     
     try {
-        await updateArmoryItem(itemIdToLink, { 
+        // Preserve existing isStored and shelfNumber if they exist on the item being linked
+        const updatesForItem: Partial<ArmoryItem> = {
             linkedSoldierId: soldier.id,
-            isStored: itemToLink.isStored, // Preserve existing stored status
-            shelfNumber: itemToLink.shelfNumber // Preserve existing shelf number
-        });
+        };
+        if (itemToLink.hasOwnProperty('isStored')) {
+            updatesForItem.isStored = itemToLink.isStored;
+        }
+        if (itemToLink.hasOwnProperty('shelfNumber')) {
+            updatesForItem.shelfNumber = itemToLink.shelfNumber;
+        }
+
+
+        await updateArmoryItem(itemIdToLink, updatesForItem);
         
         const updatedItemForSoldierList: ArmoryItem = {
             ...itemToLink,
@@ -728,22 +751,28 @@ export function SoldierDetailClient({
             </div>
           </div>
           {selectedFile && (
-            <div className="mt-2">
-                <Label htmlFor="editableFileNameSoldierPage">שם הקובץ (ניתן לעריכה)</Label>
+            <div className="mt-2 space-y-1">
+                <Label htmlFor="editableFileNameSoldierPage">שם הקובץ (ללא סיומת)</Label>
                 <Input
                     id="editableFileNameSoldierPage"
                     type="text"
-                    value={editableFileName}
-                    onChange={(e) => setEditableFileName(e.target.value)}
-                    placeholder="הכנס שם קובץ"
+                    value={fileNameBase}
+                    onChange={(e) => setFileNameBase(e.target.value)}
+                    placeholder="הכנס שם קובץ (הסיומת תתווסף אוטומטית)"
                     className="mt-1"
                 />
+                {fileNameExt && (
+                    <p className="text-xs text-muted-foreground">סיומת: {fileNameExt}</p>
+                )}
+                {fileNameBase.trim() && fileNameExt && (
+                     <p className="text-xs text-muted-foreground">שם קובץ מלא צפוי: {fileNameBase.trim() + fileNameExt}</p>
+                )}
             </div>
           )}
           <Button
             type="button"
             onClick={handleDocumentUpload}
-            disabled={!selectedFile || isUploading || !editableFileName.trim()}
+            disabled={!selectedFile || isUploading || !fileNameBase.trim()}
             className="mt-2"
           >
             {isUploading ? <RefreshCw className="animate-spin h-4 w-4 ms-2" /> : <Upload className="h-4 w-4 ms-2" />}
@@ -850,7 +879,7 @@ export function SoldierDetailClient({
                                                             setSelectedItemTypeForSoldierPageIsUnique(null);
                                                             (window as any).__SELECTED_ITEM_TYPE_IS_UNIQUE_SOLDIER_PAGE__ = null;
                                                         } else if (type && type.isUnique) {
-                                                             const currentIsStored = addUniqueArmoryItemForm.getValues("isStored");
+                                                            const currentIsStored = addUniqueArmoryItemForm.getValues("isStored");
                                                             addUniqueArmoryItemForm.setValue("isStored", currentIsStored || false); 
                                                             if (!currentIsStored) {
                                                                 addUniqueArmoryItemForm.setValue("shelfNumber", "");
@@ -888,7 +917,7 @@ export function SoldierDetailClient({
                                                 render={({ field }) => (
                                                     <Checkbox
                                                         id="isStoredNewItemSoldierPage"
-                                                        checked={field.value}
+                                                        checked={!!field.value} // Ensure checked is boolean
                                                         onCheckedChange={(checked) => {
                                                             field.onChange(checked);
                                                             if (checked === false) {
