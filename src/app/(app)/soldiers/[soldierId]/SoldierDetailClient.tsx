@@ -342,7 +342,7 @@ export function SoldierDetailClient({
         if (fileToProcess.type.startsWith('image/') && fileToProcess.size > IMAGE_COMPRESSION_THRESHOLD_BYTES) {
             toast({ title: "מכווץ תמונה...", description: "הקובץ הנבחר גדול, מתבצע ניסיון לכווץ אותו." });
             const options = {
-                maxSizeMB: 2, 
+                maxSizeMB: 1, 
                 maxWidthOrHeight: 1920,
                 useWebWorker: true,
                 alwaysKeepResolution: false,
