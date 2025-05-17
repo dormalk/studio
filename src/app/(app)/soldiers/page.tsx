@@ -22,12 +22,18 @@ export default async function AllSoldiersPage() {
   const soldiersWithDetails = soldiers.map(soldier => {
     const division = divisions.find(d => d.id === soldier.divisionId);
     
-    let assignedUniqueArmoryItemsCount = 0;
+    const assignedUniqueArmoryItemsDetails: Array<{ id: string; itemTypeName: string; itemId: string; }> = [];
     const nonUniqueAssignmentsMap = new Map<string, { itemTypeName: string, quantity: number }>();
 
     allArmoryItems.forEach(item => {
       if (item.isUniqueItem && item.linkedSoldierId === soldier.id) {
-        assignedUniqueArmoryItemsCount++;
+        if (item.itemId) { // Ensure itemId exists for unique items
+             assignedUniqueArmoryItemsDetails.push({
+                id: item.id,
+                itemTypeName: item.itemTypeName || "סוג לא ידוע",
+                itemId: item.itemId,
+            });
+        }
       } else if (!item.isUniqueItem && item.assignments) {
         item.assignments.forEach(assignment => {
           if (assignment.soldierId === soldier.id) {
@@ -50,7 +56,7 @@ export default async function AllSoldiersPage() {
     return {
       ...soldier,
       divisionName: division ? division.name : "לא משויך",
-      assignedUniqueArmoryItemsCount,
+      assignedUniqueArmoryItemsDetails,
       assignedNonUniqueArmoryItemsSummary
     };
   }).sort((a, b) => a.name.localeCompare(b.name)); // Ensure consistent sorting
@@ -61,3 +67,4 @@ export default async function AllSoldiersPage() {
     </div>
   );
 }
+

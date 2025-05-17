@@ -135,8 +135,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
             name: values.name,
             divisionId: values.divisionId,
             divisionName,
-            // Preserve armory summary if it exists, otherwise set to defaults
-            assignedUniqueArmoryItemsCount: editingSoldier.assignedUniqueArmoryItemsCount || 0,
+            assignedUniqueArmoryItemsDetails: editingSoldier.assignedUniqueArmoryItemsDetails || [],
             assignedNonUniqueArmoryItemsSummary: editingSoldier.assignedNonUniqueArmoryItemsSummary || [],
         };
         setSoldiers(prev => prev.map(s => s.id === updatedOrNewSoldier!.id ? updatedOrNewSoldier! : s));
@@ -146,8 +145,7 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
         updatedOrNewSoldier = {
             ...newSoldierServerData,
             documents: newSoldierServerData.documents || [],
-            // New soldiers won't have armory items initially
-            assignedUniqueArmoryItemsCount: 0,
+            assignedUniqueArmoryItemsDetails: [],
             assignedNonUniqueArmoryItemsSummary: [],
         };
         setSoldiers(prev => [...prev, updatedOrNewSoldier!]);
@@ -678,27 +676,35 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
               <CardContent className="flex-grow space-y-3">
                 <div>
                   <p className="text-xs font-medium mb-0.5">סיכום נשקייה:</p>
-                  {(soldier.assignedUniqueArmoryItemsCount && soldier.assignedUniqueArmoryItemsCount > 0) || (soldier.assignedNonUniqueArmoryItemsSummary && soldier.assignedNonUniqueArmoryItemsSummary.length > 0) ? (
+                  {(!soldier.assignedUniqueArmoryItemsDetails || soldier.assignedUniqueArmoryItemsDetails.length === 0) && 
+                   (!soldier.assignedNonUniqueArmoryItemsSummary || soldier.assignedNonUniqueArmoryItemsSummary.length === 0) ? (
+                    <p className="text-xs text-muted-foreground">אין פריטי נשקייה משויכים.</p>
+                  ) : (
                     <>
-                      {soldier.assignedUniqueArmoryItemsCount && soldier.assignedUniqueArmoryItemsCount > 0 ? (
-                        <p className="text-xs text-muted-foreground flex items-center">
-                          <Package className="inline h-3.5 w-3.5 me-1.5" />
-                          פריטים ייחודיים: {soldier.assignedUniqueArmoryItemsCount}
-                        </p>
-                      ) : null}
-                      {soldier.assignedNonUniqueArmoryItemsSummary && soldier.assignedNonUniqueArmoryItemsSummary.length > 0 ? (
+                      {(soldier.assignedUniqueArmoryItemsDetails && soldier.assignedUniqueArmoryItemsDetails.length > 0) && (
                         <div className="text-xs text-muted-foreground mt-0.5">
-                          <p className="flex items-center"><Archive className="inline h-3.5 w-3.5 me-1.5" />פריטים כמותיים:</p>
+                          <p className="flex items-center font-medium"><Package className="inline h-3.5 w-3.5 me-1.5" />פריטים ייחודיים ({soldier.assignedUniqueArmoryItemsDetails.length}):</p>
+                          <ul className="list-disc ps-6 space-y-0.5">
+                            {soldier.assignedUniqueArmoryItemsDetails.slice(0, 2).map(detail => (
+                              <li key={detail.id}>{detail.itemTypeName}: {detail.itemId}</li>
+                            ))}
+                            {soldier.assignedUniqueArmoryItemsDetails.length > 2 && (
+                              <li>ועוד {soldier.assignedUniqueArmoryItemsDetails.length - 2}...</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                      {soldier.assignedNonUniqueArmoryItemsSummary && soldier.assignedNonUniqueArmoryItemsSummary.length > 0 && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          <p className="flex items-center font-medium"><Archive className="inline h-3.5 w-3.5 me-1.5" />פריטים כמותיים:</p>
                           <ul className="list-disc ps-6 space-y-0.5">
                             {soldier.assignedNonUniqueArmoryItemsSummary.map(summary => (
                               <li key={summary.itemTypeName}>{summary.itemTypeName}: {summary.quantity}</li>
                             ))}
                           </ul>
                         </div>
-                      ) : null}
+                      )}
                     </>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">אין פריטי נשקייה משויכים.</p>
                   )}
                 </div>
                 <Separator className="my-2" />
@@ -737,3 +743,4 @@ export function AllSoldiersClient({ initialSoldiers, initialDivisions }: AllSold
     </div>
   );
 }
+

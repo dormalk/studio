@@ -27,7 +27,7 @@ export interface Soldier {
   divisionId: string;
   divisionName?: string; // Optional: for display purposes, denormalized
   documents?: SoldierDocument[];
-  assignedUniqueArmoryItemsCount?: number;
+  assignedUniqueArmoryItemsDetails?: Array<{ id: string; itemTypeName: string; itemId: string; }>;
   assignedNonUniqueArmoryItemsSummary?: Array<{ itemTypeName: string; quantity: number }>;
 }
 
@@ -65,3 +65,4 @@ export interface ArmoryItem {
   // Client-side temporary field for SoldierDetail page
   _currentSoldierAssignedQuantity?: number;
 }
+
