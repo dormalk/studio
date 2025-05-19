@@ -86,7 +86,7 @@ export function LoginClient() {
   };
 
   return (
-    <Card className="w-full max-w-md shadow-xl">
+    <Card className="h-full max-w-md my-auto shadow-xl rounded-none border-none">
       <CardHeader className="items-center text-center">
         <Shield className="h-12 w-12 text-primary mb-2" />
         <CardTitle className="text-2xl">התחברות למערכת</CardTitle>
