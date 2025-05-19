@@ -62,18 +62,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       setIsDevAdminActive(true);
       setUser(mockAdminUser);
-      setLoading(false); // Set loading to false immediately
+      setLoading(false); // Set loading to false AFTER setting user and flag
 
       if (typeof window !== 'undefined' && !isRestoringFromCookie) {
-        document.cookie = "dev_admin_override=true; path=/; SameSite=Lax; Max-Age=" + (60 * 60 * 24);
+        document.cookie = "dev_admin_override=true; path=/; SameSite=Lax; Max-Age=" + (60 * 60 * 24); // 1 day
         console.log("DEV MODE: Set dev_admin_override cookie.");
       }
       
-      console.log("DEV MODE: User set as dev admin, loading is false. Attempting to redirect.");
+      console.log("DEV MODE: User set as dev admin, loading is false. Current pathname:", pathname);
       // Push router.push to the next event loop tick
       setTimeout(() => {
         if (pathname === '/login' || pathname === '/register') {
-          router.push('/');
+             console.log("DEV MODE: setTimeout: Pushing to / from ", pathname);
+             router.push('/');
+        } else {
+             console.log("DEV MODE: setTimeout: Already on an app page or similar, not pushing. Pathname:", pathname);
         }
       }, 0);
     } else {
@@ -81,49 +84,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [router, pathname]);
 
-  // Effect for restoring dev admin session from cookie
+  // Effect for restoring dev admin session from cookie ON INITIAL CLIENT LOAD
   useEffect(() => {
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-      if (!user && !isDevAdminActive && loading) { // Only try to restore if no user/dev session and still in initial load
+      // Check only if dev admin isn't already active from a previous action in this session
+      // And if we are still in the initial loading phase (to avoid conflicts with user interactions)
+      if (!isDevAdminActive && loading) {
         const devCookie = document.cookie.split('; ').find(row => row.startsWith('dev_admin_override='));
         if (devCookie?.split('=')[1] === 'true') {
-          console.warn("DEV MODE: AuthContext initial useEffect found dev_admin_override cookie, attempting to restore dev admin session.");
-          if (devLoginAsAdmin) devLoginAsAdmin(true);
+          console.warn("DEV MODE: AuthContext initial load: dev_admin_override cookie found. Attempting to restore dev admin session.");
+          if (devLoginAsAdmin) { // devLoginAsAdmin is memoized by useCallback
+            devLoginAsAdmin(true); // isRestoringFromCookie = true
+          }
         }
       }
     }
-  }, [user, isDevAdminActive, loading, devLoginAsAdmin]);
-
+    // This effect should run once on mount, or if devLoginAsAdmin changes (which it shouldn't if memoized correctly)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [devLoginAsAdmin]); // Removed user, isDevAdminActive, loading to make it run more like a mount effect for cookie check
 
   // Effect for Firebase auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       console.log("AuthContext: onAuthStateChanged triggered. Firebase user:", firebaseUser, "Current isDevAdminActive:", isDevAdminActive);
 
-      if (isDevAdminActive && firebaseUser === null) {
-        console.log("AuthContext: In dev admin mode and no real Firebase user. Preserving dev admin session. Ensuring loading is false.");
-        if (loading) setLoading(false); // Ensure loading is false if dev admin is active
-        return; // Do not proceed further to avoid overwriting dev admin user
-      }
-
       if (firebaseUser) {
         // Real Firebase user signed in
-        console.log("AuthContext: Real Firebase user detected. Disabling dev admin mode if it was active.");
-        if (isDevAdminActive) {
-          if (typeof window !== 'undefined') {
+        console.log("AuthContext: Real Firebase user detected. Clearing dev admin mode if active.");
+        if (typeof window !== 'undefined') {
             document.cookie = "dev_admin_override=; path=/; Max-Age=0; SameSite=Lax";
-          }
         }
-        setIsDevAdminActive(false);
-
+        setIsDevAdminActive(false); 
+        // User profile fetching logic...
         try {
-          // For real users, user document ID in 'users' is their Firebase UID
           const userProfileDocRef = doc(db, "users", firebaseUser.uid); 
           const userProfileDoc = await getDoc(userProfileDocRef);
-
           if (userProfileDoc.exists()) {
             const userProfileData = userProfileDoc.data() as UserProfile;
-            const appUserInstance: AppUser = {
+            const appUserInstance: AppUser = { /* ... assemble user ... */
               ...firebaseUser,
               soldierId: userProfileData.soldierId,
               role: userProfileData.role,
@@ -131,35 +129,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               displayName: userProfileData.displayName || firebaseUser.displayName,
             };
             setUser(appUserInstance);
-            console.log("AuthContext: User profile found and set for real user:", appUserInstance);
-            if (pathname === '/login' || pathname === '/register') {
-              router.push('/');
-            }
+            console.log("AuthContext: Real user profile set.");
           } else {
-            console.error("AuthContext: User profile not found in Firestore for UID:", firebaseUser.uid, "Signing out.");
-            await firebaseSignOut(auth); 
-            // setUser(null); // onAuthStateChanged will fire again with null
+            console.error("AuthContext: User profile not found for UID:", firebaseUser.uid, "Signing out.");
+            await firebaseSignOut(auth);
+            setUser(null); // Explicitly set user to null here
           }
         } catch (error) {
-            console.error("AuthContext: Error fetching user profile:", error);
+            console.error("AuthContext: Error fetching real user profile:", error);
             await firebaseSignOut(auth);
-            // setUser(null);
+            setUser(null); // Explicitly set user to null here
         } finally {
             setLoading(false);
         }
-      } else {
-        // No Firebase user AND not in dev admin mode (due to the check at the beginning of this callback)
-        console.log("AuthContext: No Firebase user and not in dev admin mode. Setting user to null and loading to false.");
-        setUser(null);
-        setLoading(false); 
+      } else { // No Firebase user
+        if (isDevAdminActive) {
+          console.log("AuthContext: No Firebase user, but dev admin is active. Preserving dev admin session.");
+          // If dev admin is active, user and loading state are managed by devLoginAsAdmin or cookie restore
+          // Ensure loading is false if it was still true for some reason
+          if (loading) setLoading(false); 
+        } else {
+          console.log("AuthContext: No Firebase user and not in dev admin mode. Setting user to null.");
+          setUser(null);
+          setLoading(false); 
+        }
       }
     });
-
     return () => unsubscribe();
-  }, [isDevAdminActive, router, pathname, loading]); // Removed devLoginAsAdmin, added loading
+  }, [isDevAdminActive, loading]); // router, pathname removed as they are not directly used in THIS effect's core logic for onAuthStateChanged
+
 
   const logout = async () => {
-    console.log("AuthContext: logout called. Was dev admin active:", isDevAdminActive);
+    console.log("AuthContext: logout called.");
     
     if (typeof window !== 'undefined') {
       document.cookie = "dev_admin_override=; path=/; Max-Age=0; SameSite=Lax";
@@ -168,29 +169,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     setIsDevAdminActive(false);
     setUser(null); 
-    
+    setLoading(true); // Set loading to true before sign out, then false after or on redirect
+
     try {
       await firebaseSignOut(auth);
-      console.log("AuthContext: Firebase signout successful (or no user was signed in).");
+      console.log("AuthContext: Firebase signout successful.");
     } catch (error) {
       console.error("Error signing out from Firebase: ", error);
     } finally {
-        setLoading(false); // Ensure loading is false after all logout operations
-        if (pathname !== '/login') {
+        setLoading(false); 
+        // onAuthStateChanged should handle user=null and redirect via AppLayout or middleware
+        if (pathname !== '/login') { // Extra safety redirect
             router.push('/login');
         }
     }
   };
   
-  if (loading) { 
-    const isAuthPage = pathname === '/login' || pathname === '/register';
-    // Show loader on non-auth pages during initial load or if dev admin is active but user not yet set (brief moment)
-    if (!isAuthPage || (isDevAdminActive && !user)) { 
-        return (
-            <div className="flex justify-center items-center min-h-screen">
-              <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            </div>
-        );
+  // Global loader display logic (could be in AppLayout too)
+  // This loader is for the initial auth state resolution.
+  if (loading && typeof window !== 'undefined') {
+     // Avoid showing loader if dev admin was restored quickly from cookie and already set loading to false
+    if (!isDevAdminActive || (isDevAdminActive && user?.uid !== 'dev-admin-uid-001') ) {
+        const isAuthPage = pathname === '/login' || pathname === '/register';
+        if (!isAuthPage) { // Don't show global loader on auth pages themselves
+            return (
+                <div className="flex justify-center items-center min-h-screen">
+                  <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                </div>
+            );
+        }
     }
   }
 
