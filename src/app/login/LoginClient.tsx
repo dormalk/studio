@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Shield } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext"; // Import useAuth
 
 const loginSchema = z.object({
   soldierId: z.string().min(1, "מספר אישי הינו שדה חובה"),
@@ -27,6 +28,7 @@ export function LoginClient() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const { devLoginAsAdmin } = useAuth(); // Get devLoginAsAdmin from context
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -38,7 +40,7 @@ export function LoginClient() {
 
   const onSubmit = async (data: LoginFormValues) => {
     setIsLoading(true);
-    const email = `${data.soldierId}@tzahal.app`; // Construct the email
+    const email = `${data.soldierId}@tzahal.app`; 
 
     try {
       await signInWithEmailAndPassword(auth, email, data.password);
@@ -46,7 +48,8 @@ export function LoginClient() {
         title: "התחברות הצליחה",
         description: "מיד תועבר למערכת.",
       });
-      router.push("/"); // Redirect to dashboard or main app page
+      // No need to router.push here, AuthContext useEffect will handle it
+      // router.push("/"); 
     } catch (error: any) {
       console.error("Login error:", error);
       let errorMessage = "התחברות נכשלה. אנא בדוק את פרטיך ונסה שנית.";
@@ -61,7 +64,7 @@ export function LoginClient() {
              errorMessage = "המספר האישי שהוזן אינו תקין.";
             break;
           default:
-            errorMessage = `שגיאה: ${error.message}`;
+            errorMessage = `שגיאה לא צפויה. אנא נסה שנית מאוחר יותר.`;
         }
       }
       toast({
@@ -71,6 +74,14 @@ export function LoginClient() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDevAdminLogin = () => {
+    if (devLoginAsAdmin) {
+      setIsLoading(true); // Show loading state during mock login
+      devLoginAsAdmin();
+      // setIsLoading(false) will be handled by AuthContext or redirection
     }
   };
 
@@ -113,6 +124,17 @@ export function LoginClient() {
             {isLoading ? "מתחבר..." : "התחבר"}
           </Button>
         </form>
+        {process.env.NODE_ENV === 'development' && devLoginAsAdmin && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full mt-3 border-amber-500 text-amber-600 hover:bg-amber-100"
+            onClick={handleDevAdminLogin}
+            disabled={isLoading}
+          >
+            התחבר כמנהל (פיתוח)
+          </Button>
+        )}
       </CardContent>
       <CardFooter className="flex flex-col items-center space-y-2">
         <p className="text-sm text-muted-foreground">
@@ -125,3 +147,5 @@ export function LoginClient() {
     </Card>
   );
 }
+
+    
