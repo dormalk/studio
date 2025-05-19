@@ -2,75 +2,65 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// For real Firebase token validation in middleware, you'd typically use Firebase Admin SDK
-// or verify ID tokens. For simplicity here, we'll just check for cookie existence.
-// A more robust check would involve verifying the token's validity.
 const FIREBASE_SESSION_COOKIE_NAME = '__session'; // Example if using Firebase session cookies
 const LEGACY_FIREBASE_AUTH_COOKIE_PATTERN = /^firebase:authUser:[^:]+:[^:]+$/; // Pattern for legacy client-side SDK cookie
+const DEV_ADMIN_OVERRIDE_COOKIE_NAME = 'dev_admin_override';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const devAdminOverrideCookie = request.cookies.get(DEV_ADMIN_OVERRIDE_COOKIE_NAME);
+  const isDevAdminActive = process.env.NODE_ENV === 'development' && devAdminOverrideCookie?.value === 'true';
 
-  // Development escape hatch for admin user
-  if (process.env.NODE_ENV === 'development') {
-    const devAdminOverrideCookie = request.cookies.get('dev_admin_override');
-    if (devAdminOverrideCookie?.value === 'true') {
-      console.log("Middleware: Dev admin override active.");
-      if ((pathname.startsWith('/login') || pathname.startsWith('/register')) && pathname !== '/') {
-        console.log("Middleware: Dev admin on auth page, redirecting to /");
-        return NextResponse.redirect(new URL('/', request.url));
-      }
-      return NextResponse.next(); // Allow access
-    }
+  // Allow access to API routes and static files without authentication
+  if (pathname.startsWith('/api/') ||
+      pathname.startsWith('/_next/') ||
+      pathname.includes('.')) { // Check for file extensions like .ico, .png
+    return NextResponse.next();
   }
 
-  // Check for any Firebase auth-related cookie.
-  // This is a simplified check. For production, proper ID token verification is needed.
+  const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/register');
+
+  if (isDevAdminActive) {
+    console.log("Middleware: Dev admin override IS ACTIVE.");
+    if (isAuthPage) {
+      console.log("Middleware: Dev admin on auth page, redirecting to /");
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+    return NextResponse.next(); // Dev admin is active, allow access to app pages
+  }
+
+  // Standard Firebase authentication check
   let isAuthenticated = false;
   const sessionCookie = request.cookies.get(FIREBASE_SESSION_COOKIE_NAME);
   if (sessionCookie) {
-    isAuthenticated = true; // Assume valid if session cookie exists (needs server-side validation ideally)
+    // In a real scenario, you'd verify this session cookie with Firebase Admin SDK
+    isAuthenticated = true;
   } else {
-    // Check for legacy Firebase client SDK cookies
-    for (const [name, cookie] of request.cookies) {
+    for (const [name] of request.cookies) {
       if (LEGACY_FIREBASE_AUTH_COOKIE_PATTERN.test(name)) {
         isAuthenticated = true;
         break;
       }
     }
   }
-   // If we are on a server where cookies are not directly readable in middleware for Firebase Auth
-   // we might need to rely on client-side checks or a custom token stored in a readable cookie.
-   // For this example, we assume the AuthContext on the client will handle true auth state.
-   // The middleware provides a first layer of redirection.
-
-  const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/register');
-  
-  // Allow access to API routes and static files without authentication
-  if (pathname.startsWith('/api/') || 
-      pathname.startsWith('/_next/') || 
-      pathname.includes('.')) { // Check for file extensions like .ico, .png
-    return NextResponse.next();
-  }
 
   if (isAuthenticated) {
-    if (isAuthPage && pathname !== '/') { // Avoid redirect loop if home is an auth page by mistake
+    console.log("Middleware: User is authenticated via Firebase cookie.");
+    if (isAuthPage) {
+      console.log("Middleware: Authenticated user on auth page, redirecting to /");
       return NextResponse.redirect(new URL('/', request.url));
     }
     return NextResponse.next();
   }
 
-  // If not authenticated
-  if (!isAuthenticated && !isAuthPage) {
-    let from = pathname;
-    if (request.nextUrl.search) {
-      from += request.nextUrl.search;
-    }
-    const loginUrl = new URL('/login', request.url)
-    // loginUrl.searchParams.set('from', from) // Optional: redirect back after login
+  // If not authenticated by any means
+  if (!isAuthPage) {
+    console.log("Middleware: User NOT authenticated, and not on auth page. Redirecting to /login from", pathname);
+    const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
   }
 
+  // If on an auth page and not authenticated, allow access
   return NextResponse.next();
 }
 
@@ -87,5 +77,3 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
-
-    
