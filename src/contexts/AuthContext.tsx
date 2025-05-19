@@ -60,9 +60,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         divisionId: 'dev-admin-division',
       };
       
-      setIsDevAdminActive(true); // Set flag first
+      setIsDevAdminActive(true);
       setUser(mockAdminUser);
-      setLoading(false); // Crucial: set loading to false AFTER user and flag are set
+      setLoading(false); // Set loading to false immediately
 
       if (typeof window !== 'undefined' && !isRestoringFromCookie) {
         document.cookie = "dev_admin_override=true; path=/; SameSite=Lax; Max-Age=" + (60 * 60 * 24);
@@ -70,29 +70,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       
       console.log("DEV MODE: User set as dev admin, loading is false. Attempting to redirect.");
-      if (pathname === '/login' || pathname === '/register') {
-        router.push('/');
-      }
+      // Push router.push to the next event loop tick
+      setTimeout(() => {
+        if (pathname === '/login' || pathname === '/register') {
+          router.push('/');
+        }
+      }, 0);
     } else {
       console.error("devLoginAsAdmin can only be used in development mode.");
     }
   }, [router, pathname]);
 
-  // Effect for restoring dev admin session from cookie - SIMPLIFIED
+  // Effect for restoring dev admin session from cookie
   useEffect(() => {
-    // This effect is for INITIALLY RESTORING a dev admin session from a cookie on page load.
-    // It should not interfere with an already active dev admin session or a real Firebase session.
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-      // Only run if no user is currently set (neither real nor dev admin) and it's the initial loading phase.
-      if (!user && !isDevAdminActive && loading) {
+      if (!user && !isDevAdminActive && loading) { // Only try to restore if no user/dev session and still in initial load
         const devCookie = document.cookie.split('; ').find(row => row.startsWith('dev_admin_override='));
         if (devCookie?.split('=')[1] === 'true') {
-          console.log("DEV MODE: AuthContext initial useEffect found dev_admin_override cookie and no active session, calling devLoginAsAdmin(true).");
-          if (devLoginAsAdmin) devLoginAsAdmin(true); // isRestoringFromCookie = true
+          console.warn("DEV MODE: AuthContext initial useEffect found dev_admin_override cookie, attempting to restore dev admin session.");
+          if (devLoginAsAdmin) devLoginAsAdmin(true);
         }
       }
     }
-  }, [loading, user, isDevAdminActive, devLoginAsAdmin]);
+  }, [user, isDevAdminActive, loading, devLoginAsAdmin]);
 
 
   // Effect for Firebase auth state changes
@@ -100,18 +100,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       console.log("AuthContext: onAuthStateChanged triggered. Firebase user:", firebaseUser, "Current isDevAdminActive:", isDevAdminActive);
 
+      if (isDevAdminActive && firebaseUser === null) {
+        console.log("AuthContext: In dev admin mode and no real Firebase user. Preserving dev admin session. Ensuring loading is false.");
+        if (loading) setLoading(false); // Ensure loading is false if dev admin is active
+        return; // Do not proceed further to avoid overwriting dev admin user
+      }
+
       if (firebaseUser) {
         // Real Firebase user signed in
+        console.log("AuthContext: Real Firebase user detected. Disabling dev admin mode if it was active.");
         if (isDevAdminActive) {
-          console.log("AuthContext: Real Firebase user detected while dev admin mode was active. Disabling dev admin mode.");
           if (typeof window !== 'undefined') {
-            document.cookie = "dev_admin_override=; path=/; Max-Age=0; SameSite=Lax"; // Clear dev cookie
+            document.cookie = "dev_admin_override=; path=/; Max-Age=0; SameSite=Lax";
           }
         }
-        setIsDevAdminActive(false); // Turn off dev admin mode
+        setIsDevAdminActive(false);
 
         try {
-          const userProfileDocRef = doc(db, "users", firebaseUser.uid); // Use UID for 'users' collection
+          // For real users, user document ID in 'users' is their Firebase UID
+          const userProfileDocRef = doc(db, "users", firebaseUser.uid); 
           const userProfileDoc = await getDoc(userProfileDocRef);
 
           if (userProfileDoc.exists()) {
@@ -124,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               displayName: userProfileData.displayName || firebaseUser.displayName,
             };
             setUser(appUserInstance);
-            console.log("AuthContext: User profile found and set:", appUserInstance);
+            console.log("AuthContext: User profile found and set for real user:", appUserInstance);
             if (pathname === '/login' || pathname === '/register') {
               router.push('/');
             }
@@ -141,23 +148,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setLoading(false);
         }
       } else {
-        // No Firebase user
-        if (!isDevAdminActive) {
-          // And not in dev admin mode, so truly no user
-          console.log("AuthContext: No Firebase user and not in dev admin mode. Setting user to null and loading to false.");
-          setUser(null);
-          setLoading(false); 
-        } else {
-          // In dev admin mode, but no Firebase user. The dev admin state should persist.
-          // setLoading(false) should have been handled by devLoginAsAdmin.
-          console.log("AuthContext: No Firebase user, but dev admin mode is active. User state preserved. Ensuring loading is false.");
-          if (loading) setLoading(false); 
-        }
+        // No Firebase user AND not in dev admin mode (due to the check at the beginning of this callback)
+        console.log("AuthContext: No Firebase user and not in dev admin mode. Setting user to null and loading to false.");
+        setUser(null);
+        setLoading(false); 
       }
     });
 
     return () => unsubscribe();
-  }, [isDevAdminActive, devLoginAsAdmin, router, pathname, loading]); // Added loading to dep array
+  }, [isDevAdminActive, router, pathname, loading]); // Removed devLoginAsAdmin, added loading
 
   const logout = async () => {
     console.log("AuthContext: logout called. Was dev admin active:", isDevAdminActive);
@@ -167,33 +166,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log("DEV MODE: Cleared dev_admin_override cookie on logout.");
     }
     
-    const wasDevAdmin = isDevAdminActive;
-    setIsDevAdminActive(false); // Turn off dev admin mode first
+    setIsDevAdminActive(false);
+    setUser(null); 
     
     try {
       await firebaseSignOut(auth);
       console.log("AuthContext: Firebase signout successful (or no user was signed in).");
-      // onAuthStateChanged will handle setting user to null and loading to false if a real user was signed out.
-      // If it was only a dev admin, onAuthStateChanged might not do what we need if it sees null again.
     } catch (error) {
       console.error("Error signing out from Firebase: ", error);
     } finally {
-        // Explicitly clear state and redirect, especially for dev admin or if signout failed
-        setUser(null); 
-        setLoading(false);
-        if (pathname !== '/login') { // Avoid redirect loop if already there
+        setLoading(false); // Ensure loading is false after all logout operations
+        if (pathname !== '/login') {
             router.push('/login');
         }
     }
   };
   
-  // Global loader for initial auth state resolution
-  if (loading && !isDevAdminActive && !user) { 
+  if (loading) { 
     const isAuthPage = pathname === '/login' || pathname === '/register';
-    if (!isAuthPage) { 
+    // Show loader on non-auth pages during initial load or if dev admin is active but user not yet set (brief moment)
+    if (!isAuthPage || (isDevAdminActive && !user)) { 
         return (
             <div className="flex justify-center items-center min-h-screen">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+              <Loader2 className="h-12 w-12 animate-spin text-primary" />
             </div>
         );
     }
