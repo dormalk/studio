@@ -17,10 +17,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="he" dir="rtl">
-      <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}>
-        <Providers> {/* General providers like React Query */}
-          <AuthProvider> {/* AuthProvider wraps the children */}
+    <html lang="he" dir="rtl" className="h-full">
+      <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased h-full`}>
+        <Providers>
+          <AuthProvider>
             {children}
           </AuthProvider>
           <Toaster />
