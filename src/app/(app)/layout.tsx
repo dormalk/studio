@@ -9,33 +9,32 @@ import { SidebarNav } from '@/components/layout/SidebarNav';
 import { useAuth } from '@/contexts/AuthContext'; 
 import { useRouter, usePathname } from 'next/navigation'; 
 import { Loader2 } from 'lucide-react'; 
+import { useEffect } from 'react'; // Added useEffect import
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, isDevAdminActive } = useAuth(); // Added isDevAdminActive
   const router = useRouter();
-  const pathname = usePathname(); // Get current pathname
+  const pathname = usePathname();
 
   useEffect(() => {
-    // This effect runs on client-side after initial render and when user/loading changes
-    if (!loading && !user) {
-      // Check if dev admin cookie exists, to prevent premature redirection if devLogin is in progress
-      let isDevAdminAttempt = false;
-      if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-        const devCookie = document.cookie.split('; ').find(row => row.startsWith('dev_admin_override='));
-        if (devCookie?.split('=')[1] === 'true') {
-          isDevAdminAttempt = true;
-        }
-      }
-      
-      if (!isDevAdminAttempt && pathname !== '/login' && pathname !== '/register') {
-        console.log("AppLayout: No user and not loading, and not dev admin attempt, redirecting to /login from", pathname);
+    // This effect runs on client-side after initial render and when user/loading/isDevAdminActive changes
+    if (!loading && !user && !isDevAdminActive) { // Check isDevAdminActive
+      // If not loading, no user, and not in dev admin mode
+      if (pathname !== '/login' && pathname !== '/register') { // And not already on an auth page
+        console.log("AppLayout: No authenticated user (and not dev admin), redirecting to /login from", pathname);
         router.push('/login');
       }
     }
-  }, [user, loading, router, pathname]);
+  }, [user, loading, isDevAdminActive, router, pathname]);
 
 
   if (loading) {
+    // If dev admin is active, AuthContext loader might handle it or devLoginAsAdmin sets loading to false.
+    // This loader is more for the real Firebase auth state resolution.
+    // To prevent flashing, if dev admin is active and user is set, we might not need this.
+    // However, if dev admin is being restored from cookie, loading might be true initially.
+    // The AuthContext's own loader display is more global.
+    // AppLayout should show its loader if its specific content is waiting for auth.
     return (
       <div className="flex justify-center items-center min-h-screen">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -43,22 +42,23 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     );
   }
   
-  if (!user) {
-    // If no user and no longer loading, and we are not on an auth page,
-    // this means the redirect should have happened or is about to.
-    // Return a loader or null to avoid rendering the layout for non-authed users.
-    // This also handles the case where dev admin login is happening.
-    if (pathname !== '/login' && pathname !== '/register') {
-        console.log("AppLayout: No user and not loading, returning loader/null for path:", pathname);
-         return (
-            <div className="flex justify-center items-center min-h-screen">
-                <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            </div>
-        );
-    }
-    return null; // On auth pages, let them render.
+  // If not loading, but no user AND not in dev admin mode,
+  // the useEffect above should have initiated a redirect if on an app page.
+  // If we reach here, it means we are waiting for that redirect or something is wrong.
+  // Or, this layout shouldn't be rendered at all for non-auth users (handled by middleware).
+  if (!user && !isDevAdminActive) {
+    console.log("AppLayout: No user and not dev admin, not loading. Pathname:", pathname, ". Middleware should handle this for /app routes.");
+    // If middleware is correctly configured, this state (being in AppLayout without user) shouldn't happen for /app/* routes.
+    // Showing a loader as a fallback while redirect might be in progress.
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
   }
 
+  // If user exists (real or dev admin) OR dev admin is active (even if user object is momentarily in flux during dev_admin_override restore)
+  // Render the main app layout
   return (
     <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
       <aside className="hidden border-l bg-card md:block"> {/* border-l for RTL */}
