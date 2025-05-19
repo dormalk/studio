@@ -14,8 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Shield } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext"; // Import useAuth
+import { Shield, Loader2 } from "lucide-react"; // Added Loader2
+import { useAuth } from "@/contexts/AuthContext";
 
 const loginSchema = z.object({
   soldierId: z.string().min(1, "מספר אישי הינו שדה חובה"),
@@ -27,8 +27,8 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export function LoginClient() {
   const router = useRouter();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
-  const { devLoginAsAdmin } = useAuth(); // Get devLoginAsAdmin from context
+  const [isSubmittingRealLogin, setIsSubmittingRealLogin] = useState(false); // Renamed for clarity
+  const { devLoginAsAdmin, loading: authContextLoading } = useAuth();
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -39,8 +39,8 @@ export function LoginClient() {
   });
 
   const onSubmit = async (data: LoginFormValues) => {
-    setIsLoading(true);
-    const email = `${data.soldierId}@tzahal.app`; 
+    setIsSubmittingRealLogin(true);
+    const email = `${data.soldierId}@tzahal.app`;
 
     try {
       await signInWithEmailAndPassword(auth, email, data.password);
@@ -48,8 +48,7 @@ export function LoginClient() {
         title: "התחברות הצליחה",
         description: "מיד תועבר למערכת.",
       });
-      // No need to router.push here, AuthContext useEffect will handle it
-      // router.push("/"); 
+      // AuthContext's useEffect watching onAuthStateChanged will handle redirect
     } catch (error: any) {
       console.error("Login error:", error);
       let errorMessage = "התחברות נכשלה. אנא בדוק את פרטיך ונסה שנית.";
@@ -64,7 +63,7 @@ export function LoginClient() {
              errorMessage = "המספר האישי שהוזן אינו תקין.";
             break;
           default:
-            errorMessage = `שגיאה לא צפויה. אנא נסה שנית מאוחר יותר.`;
+            errorMessage = `שגיאה (${error.code}). נסה שנית מאוחר יותר.`;
         }
       }
       toast({
@@ -73,20 +72,24 @@ export function LoginClient() {
         description: errorMessage,
       });
     } finally {
-      setIsLoading(false);
+      setIsSubmittingRealLogin(false);
     }
   };
 
   const handleDevAdminLogin = () => {
     if (devLoginAsAdmin) {
-      setIsLoading(true); // Show loading state during mock login
+      // We don't set local loading state here.
+      // devLoginAsAdmin in AuthContext will set its own loading to false
+      // and trigger navigation if successful.
       devLoginAsAdmin();
-      // setIsLoading(false) will be handled by AuthContext or redirection
     }
   };
 
+  // Overall loading state for disabling UI elements
+  const isLoading = isSubmittingRealLogin || authContextLoading;
+
   return (
-    <Card className="h-full max-w-md my-auto shadow-xl rounded-none border-none">
+    <Card className="w-full h-full max-w-md my-auto shadow-xl sm:rounded-lg border-none sm:border">
       <CardHeader className="items-center text-center">
         <Shield className="h-12 w-12 text-primary mb-2" />
         <CardTitle className="text-2xl">התחברות למערכת</CardTitle>
@@ -121,18 +124,18 @@ export function LoginClient() {
             )}
           </div>
           <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? "מתחבר..." : "התחבר"}
+            {isSubmittingRealLogin ? <Loader2 className="animate-spin" /> : "התחבר"}
           </Button>
         </form>
         {process.env.NODE_ENV === 'development' && devLoginAsAdmin && (
           <Button
             type="button"
             variant="outline"
-            className="w-full mt-3 border-amber-500 text-amber-600 hover:bg-amber-100"
+            className="w-full mt-3 border-amber-500 text-amber-600 hover:bg-amber-100 hover:text-amber-700"
             onClick={handleDevAdminLogin}
-            disabled={isLoading}
+            disabled={authContextLoading} // Only disable if AuthContext is globally loading
           >
-            התחבר כמנהל (פיתוח)
+            {authContextLoading && !isSubmittingRealLogin ? <Loader2 className="animate-spin" /> : "התחבר כמנהל (פיתוח)"}
           </Button>
         )}
       </CardContent>
