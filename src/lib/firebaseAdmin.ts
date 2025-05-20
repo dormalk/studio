@@ -1,4 +1,3 @@
-
 import admin from 'firebase-admin';
 
 // Ensure your service account key JSON is correctly sourced.
