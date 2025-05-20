@@ -1,31 +1,30 @@
 
 "use client";
 
-import { useState } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
-import { doc, setDoc, getDoc, Timestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase"; 
+import { collection, getDocs } from "firebase/firestore"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import type { Division, Soldier, UserProfile } from "@/types";
-import { Shield } from "lucide-react";
-import { checkSoldierExists } from "@/actions/soldierActions"; // Assuming this function exists
+import { ToastAction } from "@/components/ui/toast"; // Used for redirect action
+import { ShieldAlert, Loader2 } from "lucide-react";
+import type { Division } from "@/types";
 
 const registerSchema = z.object({
+  soldierId: z.string().length(7, "מספר אישי חייב להכיל 7 ספרות בדיוק"),
   fullName: z.string().min(2, "שם מלא הינו שדה חובה"),
-  soldierId: z.string().min(1, "מספר אישי הינו שדה חובה").regex(/^\d+$/, "מספר אישי חייב להכיל ספרות בלבד"),
-  divisionId: z.string().min(1, "יש לבחור פלוגה"),
+  divisionId: z.string().min(1, "חובה לבחור אוגדה"),
   password: z.string().min(6, "סיסמה חייבת להכיל לפחות 6 תווים"),
-  confirmPassword: z.string(),
+  confirmPassword: z.string().min(6, "אימות סיסמה הינו שדה חובה"),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "הסיסמאות אינן תואמות",
   path: ["confirmPassword"],
@@ -33,20 +32,32 @@ const registerSchema = z.object({
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
 
-interface RegisterClientProps {
-  divisions: Division[];
-}
-
-export function RegisterClient({ divisions }: RegisterClientProps) {
+export function RegisterClient() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [divisions, setDivisions] = useState<Division[]>([]);
+
+  useEffect(() => {
+    const fetchDivisions = async () => {
+      try {
+        const divisionsCollectionRef = collection(db, "divisions");
+        const divisionsSnapshot = await getDocs(divisionsCollectionRef);
+        const divisionsList = divisionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Division));
+        setDivisions(divisionsList);
+      } catch (error) {
+        console.error("Error fetching divisions:", error);
+        toast({ variant: "destructive", title: "שגיאת טעינת אוגדות", description: "לא ניתן היה לטעון את רשימת האוגדות." });
+      }
+    };
+    fetchDivisions();
+  }, [toast]);
 
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
-      fullName: "",
       soldierId: "",
+      fullName: "",
       divisionId: "",
       password: "",
       confirmPassword: "",
@@ -55,143 +66,113 @@ export function RegisterClient({ divisions }: RegisterClientProps) {
 
   const onSubmit = async (data: RegisterFormValues) => {
     setIsLoading(true);
-    const email = `${data.soldierId}@tzahal.app`; // Construct the email
+    let userAlreadyExistsErrorThrown = false; // Flag to track specific error
 
     try {
-      // 1. Check if soldier with this soldierId already exists in 'soldiers' collection
-      const soldierDocRef = doc(db, "soldiers", data.soldierId);
-      const soldierDocSnap = await getDoc(soldierDocRef);
+      const response = await fetch('/api/auth/custom-register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            soldierId: data.soldierId,
+            fullName: data.fullName,
+            divisionId: data.divisionId,
+            password: data.password 
+        }),
+      });
 
-      if (soldierDocSnap.exists()) {
-        // Soldier exists, check if already registered in 'users'
-        const userDocRef = doc(db, "users", data.soldierId); // Assuming user doc ID is soldierId
-        const userDocSnap = await getDoc(userDocRef);
-        if (userDocSnap.exists()) {
-          toast({ variant: "destructive", title: "שגיאת הרשמה", description: "משתמש עם מספר אישי זה כבר רשום במערכת." });
-          setIsLoading(false);
-          return;
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (result.errorType === 'USER_ALREADY_EXISTS') {
+             userAlreadyExistsErrorThrown = true; // Set flag
+             toast({
+                title: "משתמש כבר רשום",
+                description: result.error || "מספר אישי זה כבר רשום במערכת. נסה להתחבר.",
+                action: <ToastAction altText="התחבר" onClick={() => router.push('/login')}>התחבר</ToastAction>,
+                duration: 5000,
+             });
+        } else {
+            // For other non-ok responses, throw an error to be caught by the catch block
+            throw new Error(result.error || "שגיאת הרשמה מהשרת");
         }
-        // Soldier exists and not registered - proceed with auth creation
       } else {
-         toast({ variant: "destructive", title: "שגיאת הרשמה", description: "חייל עם מספר אישי זה אינו קיים במערכת. פנה למנהל." });
-         setIsLoading(false);
-         return;
+         // Successful registration
+         toast({
+            title: "הרשמה הצליחה!",
+            description: result.message || "מיד תועבר למסך ההתחברות.",
+            duration: 3000,
+         });
+         router.push("/login");
       }
-      
-      // 2. Create user in Firebase Authentication
-      const userCredential = await createUserWithEmailAndPassword(auth, email, data.password);
-      const firebaseUser = userCredential.user;
 
-      // 3. Create user profile in Firestore 'users' collection
-      // The document ID in 'users' will be the soldierId for easier querying.
-      const userProfile: UserProfile = {
-        uid: firebaseUser.uid, // Firebase Auth UID
-        email: firebaseUser.email,
-        soldierId: data.soldierId,
-        displayName: data.fullName, // This comes from the form now
-        divisionId: data.divisionId,
-        role: "User", // Default role
-        createdAt: Timestamp.now(),
-      };
-      await setDoc(doc(db, "users", data.soldierId), userProfile);
-      
-      // Optional: Update soldier document if form name is different (or ensure they match)
-      // This part depends on whether you want the registration form to also update the 'soldiers' collection.
-      // For now, we assume the soldier's name in 'soldiers' is the source of truth and the form name is for the 'users' profile.
-      // If soldierDocSnap.data()?.name !== data.fullName, consider an update strategy.
-
-      toast({
-        title: "הרשמה הצליחה",
-        description: "מיד תועבר למערכת.",
-      });
-      router.push("/"); // Redirect to main app page
     } catch (error: any) {
-      console.error("Registration error:", error);
-      let errorMessage = "ההרשמה נכשלה. נסה שנית מאוחר יותר.";
-      if (error.code) {
-        switch (error.code) {
-          case "auth/email-already-in-use":
-            errorMessage = "מספר אישי זה כבר רשום במערכת (כאימייל).";
-            break;
-          case "auth/invalid-email":
-            errorMessage = "המספר האישי שהוזן אינו תקין ליצירת אימייל.";
-            break;
-          case "auth/weak-password":
-            errorMessage = "הסיסמה חלשה מדי.";
-            break;
-          default:
-            errorMessage = `שגיאה: ${error.message}`;
-        }
+      console.error("Custom Registration error:", error);
+      // Only show generic error toast if the specific user_already_exists toast wasn't shown
+      if (!userAlreadyExistsErrorThrown) {
+        toast({
+          variant: "destructive",
+          title: "שגיאת הרשמה",
+          description: error.message || "ההרשמה נכשלה. אנא נסה שנית.",
+        });
       }
-      toast({
-        variant: "destructive",
-        title: "שגיאת הרשמה",
-        description: errorMessage,
-      });
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <Card className="h-full max-w-md shadow-xl rounded-none border-none">
+    <Card className="w-full max-w-lg mx-auto my-auto shadow-xl sm:rounded-lg border-none sm:border">
       <CardHeader className="items-center text-center">
-        <Shield className="h-12 w-12 text-primary mb-2" />
+        <ShieldAlert className="h-12 w-12 text-primary mb-2" />
         <CardTitle className="text-2xl">הרשמה למערכת</CardTitle>
         <CardDescription>הזן את פרטיך כדי ליצור משתמש חדש</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
-          <div className="space-y-1">
-            <Label htmlFor="fullName">שם מלא</Label>
-            <Input id="fullName" placeholder="הקלד שם מלא" {...form.register("fullName")} disabled={isLoading} />
-            {form.formState.errors.fullName && <p className="text-sm text-destructive">{form.formState.errors.fullName.message}</p>}
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="soldierId">מספר אישי</Label>
-            <Input id="soldierId" placeholder="הקלד מספר אישי" {...form.register("soldierId")} disabled={isLoading} />
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="soldierId">מספר אישי (7 ספרות)</Label>
+            <Input id="soldierId" placeholder="הקלד מספר אישי" {...form.register("soldierId")} />
             {form.formState.errors.soldierId && <p className="text-sm text-destructive">{form.formState.errors.soldierId.message}</p>}
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="divisionId">פלוגה</Label>
-            <Controller
-              name="divisionId"
-              control={form.control}
-              render={({ field }) => (
-                <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value} disabled={isLoading}>
-                  <SelectTrigger id="divisionId">
-                    <SelectValue placeholder="בחר פלוגה..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {divisions.map((division) => (
-                      <SelectItem key={division.id} value={division.id}>
-                        {division.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
+          <div className="space-y-2">
+            <Label htmlFor="fullName">שם מלא</Label>
+            <Input id="fullName" placeholder="הקלד שם מלא" {...form.register("fullName")} />
+            {form.formState.errors.fullName && <p className="text-sm text-destructive">{form.formState.errors.fullName.message}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="divisionId">אוגדה</Label>
+            <Select onValueChange={(value) => form.setValue("divisionId", value)} defaultValue={form.getValues("divisionId")}>
+              <SelectTrigger id="divisionId">
+                <SelectValue placeholder="בחר אוגדה..." />
+              </SelectTrigger>
+              <SelectContent>
+                {divisions.map((div) => (
+                  <SelectItem key={div.id} value={div.id}>{div.name} ({div.id})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {form.formState.errors.divisionId && <p className="text-sm text-destructive">{form.formState.errors.divisionId.message}</p>}
           </div>
-          <div className="space-y-1">
+          <div className="space-y-2">
             <Label htmlFor="password">סיסמה</Label>
-            <Input id="password" type="password" placeholder="הקלד סיסמה" {...form.register("password")} disabled={isLoading} />
+            <Input id="password" type="password" placeholder="הקלד סיסמה" {...form.register("password")} />
             {form.formState.errors.password && <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>}
           </div>
-          <div className="space-y-1">
+          <div className="space-y-2">
             <Label htmlFor="confirmPassword">אימות סיסמה</Label>
-            <Input id="confirmPassword" type="password" placeholder="הקלד סיסמה שנית" {...form.register("confirmPassword")} disabled={isLoading} />
+            <Input id="confirmPassword" type="password" placeholder="הקלד סיסמה שוב" {...form.register("confirmPassword")} />
             {form.formState.errors.confirmPassword && <p className="text-sm text-destructive">{form.formState.errors.confirmPassword.message}</p>}
           </div>
-          <Button type="submit" className="w-full !mt-6" disabled={isLoading}>
-            {isLoading ? "מרשם..." : "הירשם"}
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? <Loader2 className="animate-spin" /> : "הירשם"}
           </Button>
         </form>
       </CardContent>
       <CardFooter className="flex flex-col items-center space-y-2">
         <p className="text-sm text-muted-foreground">
-          יש לך כבר משתמש?{" "}
+          משתמש רשום?{" "}
           <Link href="/login" className="font-medium text-primary hover:underline">
             התחבר כאן
           </Link>

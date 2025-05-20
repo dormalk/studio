@@ -1,91 +1,79 @@
 
-import type { Timestamp } from "firebase/firestore";
-import type { User as FirebaseUser } from "firebase/auth";
+import type { User as FirebaseUser, UserInfo, UserMetadata } from 'firebase/auth';
+import type { Timestamp } from 'firebase/firestore';
+
+// Define specific roles - ROLE_USER removed
+export type Role =
+  | 'ROLE_SOLDIER'
+  | 'ROLE_DIVISION_MANAGER'
+  | 'ROLE_ADMIN';
+
+export interface SoldierProfileData {
+  soldierId: string;
+  name: string;
+  divisionId: string;
+  hashedPassword?: string; 
+  roles: Role[]; 
+  createdAt: Timestamp;
+  lastLoginAt?: Timestamp;
+  isActive?: boolean;
+  email?: string; 
+  photoURL?: string;
+}
+
+export interface AppUser extends Omit<FirebaseUser, 'role'> {
+  soldierId: string; 
+  primaryRole: Role;
+  roles: Role[];
+  divisionId: string | null;
+  displayName: string; // Already non-nullable, good.
+}
 
 export interface Division {
   id: string;
   name: string;
 }
 
-export interface DivisionWithDetails extends Division {
-  soldierCount: number;
-  armoryItemCount: number;
-}
-
-export interface DivisionArmorySummary {
-  totalUniqueItemsInDivision: number;
-  nonUniqueItemsSummaryInDivision: Array<{ itemTypeName: string; totalQuantityAssigned: number }>;
-}
-
-export interface SoldierDocument {
-  id: string; 
-  fileName: string; 
-  storagePath: string; 
-  downloadURL: string;
-  fileType: string; 
-  fileSize: number; 
-  uploadedAt: string; 
-}
-
-export interface Soldier {
-  id: string; 
-  name:string;
-  divisionId: string;
-  divisionName?: string; 
-  documents?: SoldierDocument[];
-  assignedUniqueArmoryItemsDetails?: Array<{ id: string; itemTypeName: string; itemId: string; isStored?: boolean; shelfNumber?: string; }>;
-  assignedNonUniqueArmoryItemsSummary?: Array<{ itemTypeName: string; quantity: number }>;
-}
-
-export interface ArmoryItemType {
+export interface ArmoryCategory {
   id: string;
   name: string;
-  isUnique: boolean;
 }
 
 export interface ArmoryItemAssignment {
   soldierId: string;
   quantity: number;
-  soldierName?: string; 
-  soldierDivisionName?: string; 
+  assignedAt: Timestamp;
+  returnedAt?: Timestamp;
 }
 
 export interface ArmoryItem {
   id: string; 
-  itemTypeId: string; 
-  itemTypeName?: string; 
-  isUniqueItem: boolean; 
+  name: string;
+  type: string; 
+  category: string; 
+  status: 'Available' | 'Assigned' | 'Maintenance' | 'Decommissioned';
+  description?: string;
+  quantity?: number; 
+  isUnique: boolean; 
+  
+  assignedTo?: string; 
+  assignmentHistory?: ArmoryItemAssignment[];
 
-  // Fields for UNIQUE items
-  itemId?: string; 
-  linkedSoldierId?: string | null; 
-  linkedSoldierName?: string; 
-  linkedSoldierDivisionName?: string; 
-  isStored?: boolean; 
-  shelfNumber?: string; 
-
-  // Fields for NON-UNIQUE items
   totalQuantity?: number; 
   assignments?: ArmoryItemAssignment[]; 
 
   imageUrl?: string; 
-
   _currentSoldierAssignedQuantity?: number;
 }
 
-// Auth related types
-export interface AppUser extends FirebaseUser {
-  soldierId?: string; // Personal ID of the soldier
-  role?: string; // e.g., "Admin", "User"
-  divisionId?: string;
-}
-
-export interface UserProfile { // Stored in Firestore /users/{uid}
-  uid: string;
+// This UserProfile might be legacy if 'soldiers' collection is the main source.
+// If used, roles should also be Role[] and not reference ROLE_USER.
+export interface UserProfile { 
+  uid: string; 
   email: string | null;
-  soldierId: string; // Personal ID, also used as username part
-  displayName: string; // Soldier's full name
+  soldierId: string; 
+  displayName: string; 
   divisionId: string;
-  role: "Admin" | "User"; // Add more roles as needed
+  roles: Role[]; // Ensure this is Role[]
   createdAt: Timestamp;
 }

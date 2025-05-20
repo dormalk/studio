@@ -6,15 +6,16 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { signInWithEmailAndPassword } from "firebase/auth";
+// useRouter is not used here for navigation, AuthContext handles it
+// import { useRouter } from "next/navigation"; 
+import { signInWithCustomToken } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Shield, Loader2 } from "lucide-react"; // Added Loader2
+import { Shield, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 const loginSchema = z.object({
@@ -25,10 +26,10 @@ const loginSchema = z.object({
 type LoginFormValues = z.infer<typeof loginSchema>;
 
 export function LoginClient() {
-  const router = useRouter();
+  // const router = useRouter(); // Not used here, AuthContext handles navigation
   const { toast } = useToast();
-  const [isSubmittingRealLogin, setIsSubmittingRealLogin] = useState(false); // Renamed for clarity
-  const { devLoginAsAdmin, loading: authContextLoading } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { loading: authContextLoading } = useAuth();
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -39,54 +40,45 @@ export function LoginClient() {
   });
 
   const onSubmit = async (data: LoginFormValues) => {
-    setIsSubmittingRealLogin(true);
-    const email = `${data.soldierId}@tzahal.app`;
-
+    setIsSubmitting(true);
     try {
-      await signInWithEmailAndPassword(auth, email, data.password);
+      const response = await fetch('/api/auth/custom-login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "שגיאת התחברות מהשרת");
+      }
+
+      if (!result.token) {
+        throw new Error("שרת לא החזיר טוקן להתחברות");
+      }
+
+      await signInWithCustomToken(auth, result.token);
       toast({
         title: "התחברות הצליחה",
         description: "מיד תועבר למערכת.",
       });
-      // AuthContext's useEffect watching onAuthStateChanged will handle redirect
+      // AuthContext's onAuthStateChanged will handle redirection
     } catch (error: any) {
-      console.error("Login error:", error);
-      let errorMessage = "התחברות נכשלה. אנא בדוק את פרטיך ונסה שנית.";
-      if (error.code) {
-        switch (error.code) {
-          case "auth/user-not-found":
-          case "auth/wrong-password":
-          case "auth/invalid-credential":
-            errorMessage = "מספר אישי או סיסמה שגויים.";
-            break;
-          case "auth/invalid-email":
-             errorMessage = "המספר האישי שהוזן אינו תקין.";
-            break;
-          default:
-            errorMessage = `שגיאה (${error.code}). נסה שנית מאוחר יותר.`;
-        }
-      }
+      console.error("Custom Login error:", error);
       toast({
         variant: "destructive",
         title: "שגיאת התחברות",
-        description: errorMessage,
+        description: error.message || "פרטי ההתחברות שגויים או שגיאה לא צפויה.",
       });
     } finally {
-      setIsSubmittingRealLogin(false);
+      setIsSubmitting(false);
     }
   };
 
-  const handleDevAdminLogin = () => {
-    if (devLoginAsAdmin) {
-      // We don't set local loading state here.
-      // devLoginAsAdmin in AuthContext will set its own loading to false
-      // and trigger navigation if successful.
-      devLoginAsAdmin();
-    }
-  };
-
-  // Overall loading state for disabling UI elements
-  const isLoading = isSubmittingRealLogin || authContextLoading;
+  const isLoading = isSubmitting || authContextLoading;
 
   return (
     <Card className="w-full h-full max-w-md my-auto shadow-xl sm:rounded-lg border-none sm:border">
@@ -124,20 +116,9 @@ export function LoginClient() {
             )}
           </div>
           <Button type="submit" className="w-full" disabled={isLoading}>
-            {isSubmittingRealLogin ? <Loader2 className="animate-spin" /> : "התחבר"}
+            {isSubmitting ? <Loader2 className="animate-spin" /> : "התחבר"}
           </Button>
         </form>
-        {process.env.NODE_ENV === 'development' && devLoginAsAdmin && (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full mt-3 border-amber-500 text-amber-600 hover:bg-amber-100 hover:text-amber-700"
-            onClick={handleDevAdminLogin}
-            disabled={authContextLoading} // Only disable if AuthContext is globally loading
-          >
-            {authContextLoading && !isSubmittingRealLogin ? <Loader2 className="animate-spin" /> : "התחבר כמנהל (פיתוח)"}
-          </Button>
-        )}
       </CardContent>
       <CardFooter className="flex flex-col items-center space-y-2">
         <p className="text-sm text-muted-foreground">
@@ -150,5 +131,3 @@ export function LoginClient() {
     </Card>
   );
 }
-
-    
