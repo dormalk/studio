@@ -1,4 +1,4 @@
-\
+
 import admin from 'firebase-admin';
 
 // Ensure your service account key JSON is correctly sourced.
@@ -6,9 +6,7 @@ import admin from 'firebase-admin';
 // Create a .env.local file in your project root with these variables:
 // FIREBASE_PROJECT_ID=your-project-id
 // FIREBASE_CLIENT_EMAIL=your-service-account-client-email
-// FIREBASE_PRIVATE_KEY=your-service-account-private-key (ensure newlines are handled, e.g. by replacing 
- with 
-)
+// FIREBASE_PRIVATE_KEY=your-service-account-private-key (ensure newlines are handled, e.g. by replacing \n with actual newlines)
 
 if (!admin.apps.length) {
   try {
@@ -27,11 +25,8 @@ if (!admin.apps.length) {
       credential: admin.credential.cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        // Replace 
- with actual newlines if your private key has them
-        privateKey: privateKey.replace(/
-/g, '
-'), 
+        // Replace \\n with actual newlines if your private key has them
+        privateKey: privateKey.replace(/\\n/g, '\n'),
       }),
       // databaseURL: `https://${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.firebaseio.com` // If you use Realtime Database
     });
